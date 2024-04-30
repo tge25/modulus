@@ -418,7 +418,7 @@ class UNetBlock(torch.nn.Module):
             else out_channels // channels_per_head
         )
         self.dropout = dropout
-        self.skip_scale = skip_scale
+        self.skip_scale = torch.tensor(skip_scale, dtype=torch.float32, device=in_channels.device())
         self.adaptive_scale = adaptive_scale
 
         self.norm0 = GroupNorm(num_channels=in_channels, eps=eps)

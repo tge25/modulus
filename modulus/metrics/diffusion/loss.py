@@ -366,7 +366,7 @@ class RegressionLoss:
         self.P_std = P_std
         self.sigma_data = sigma_data
 
-    def __call__(self, net, img_clean, img_lr, labels=None, augment_pipe=None):
+    def __call__(self, net, img_clean, img_lr, lead_time_label=None, labels=None, augment_pipe=None):
         """
         Calculate and return the loss for the U-Net for deterministic predictions.
 
@@ -408,7 +408,7 @@ class RegressionLoss:
         y_lr = y_tot[:, img_clean.shape[1] :, :, :]
 
         input = torch.zeros_like(y, device=img_clean.device)
-        D_yn = net(input, y_lr, sigma, labels, augment_labels=augment_labels)
+        D_yn = net(input, y_lr, sigma, labels, lead_time_label=lead_time_label, augment_labels=augment_labels)
         loss = weight * ((D_yn - y) ** 2)
 
         return loss
@@ -459,7 +459,7 @@ class ResLoss:
         self.patch_num = patch_num
         self.hr_mean_conditioning = hr_mean_conditioning
 
-    def __call__(self, net, img_clean, img_lr, labels=None, augment_pipe=None):
+    def __call__(self, net, img_clean, img_lr, lead_time_label=None, labels=None, augment_pipe=None):
         """
         Calculate and return the loss for denoising score matching.
 
@@ -515,6 +515,7 @@ class ResLoss:
             y_lr_res,
             sigma,
             labels,
+            lead_time_label=lead_time_label,
             augment_labels=augment_labels,
         )
 
@@ -523,12 +524,14 @@ class ResLoss:
         if self.hr_mean_conditioning:
             y_lr = torch.cat((y_mean, y_lr), dim=1).contiguous()
         global_index = None
+
         # patchified training
         # conditioning: cat(y_mean, y_lr, input_interp, pos_embd), 4+12+100+4
         if (
             self.img_shape_x != self.patch_shape_x
             or self.img_shape_y != self.patch_shape_y
-        ):
+        ):  
+            
             c_in = y_lr.shape[1]
             c_out = y.shape[1]
             rnd_normal = torch.randn(
@@ -599,12 +602,14 @@ class ResLoss:
             y = y_new
             y_lr = y_lr_new
         latent = y + torch.randn_like(y) * sigma
+
         D_yn = net(
             latent,
             y_lr,
             sigma,
             labels,
             global_index=global_index,
+            lead_time_label=lead_time_label, 
             augment_labels=augment_labels,
         )
         loss = weight * ((D_yn - y) ** 2)

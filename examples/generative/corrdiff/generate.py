@@ -42,7 +42,7 @@ from modulus.utils.generative import (
 from modulus import Module
 from datasets.base import DownscalingDataset
 from datasets.dataset import init_dataset_from_config
-from training.time import convert_datetime_to_cftime, time_range
+from datasets.time import convert_datetime_to_cftime, time_range
 
 
 time_format = "%Y-%m-%dT%H:%M:%S"
@@ -93,6 +93,7 @@ def main(cfg: DictConfig) -> None:
     DistributedManager.initialize()
     dist = DistributedManager()
     device = dist.device
+    print("device", device)
 
     if times_range is not None:
         times = []
@@ -207,7 +208,7 @@ def main(cfg: DictConfig) -> None:
         if net_res:
             net_res = torch.compile(net_res, mode=compile_mode)
 
-    def generate_fn(image_lr):
+    def generate_fn(image_lr, lead_time):
         """Function to generate an image
 
         Args:
@@ -237,7 +238,7 @@ def main(cfg: DictConfig) -> None:
                 with nvtx.annotate("regression_model", color="yellow"):
                     image_reg = generate(
                         net=net_reg,
-                        img_lr=image_lr_patch,
+                        img_lr=image_lr_patch,                        
                         seed_batch_size=1,
                         seeds=list(
                             range(dist.world_size)
@@ -245,6 +246,7 @@ def main(cfg: DictConfig) -> None:
                         pretext="reg",
                         img_shape=(img_shape_x, img_shape_y),
                         img_out_channels=img_out_channels,
+                        lead_time_label=lead_time,
                     )
             if net_res:
                 if hr_mean_conditioning and sampling_method == "stochastic":
@@ -254,7 +256,7 @@ def main(cfg: DictConfig) -> None:
                         net=net_res,
                         img_lr=image_lr_patch.expand(seed_batch_size, -1, -1, -1).to(
                             memory_format=torch.channels_last
-                        ),
+                        ),                        
                         seed_batch_size=seed_batch_size,
                         sampling_method=sampling_method,
                         seeds=sample_seeds,
@@ -262,6 +264,7 @@ def main(cfg: DictConfig) -> None:
                         num_steps=num_steps,
                         img_shape=(img_shape_x, img_shape_y),
                         img_out_channels=img_out_channels,
+                        lead_time_label=lead_time,
                         **sampler_kwargs,
                     )
             if inference_mode == "regression":
@@ -336,10 +339,7 @@ def get_dataset_and_sampler(dataset_cfg, times):
     Get a dataset and sampler for generation.
     """
     (dataset, _) = init_dataset_from_config(dataset_cfg, batch_size=1)
-    plot_times = [
-        convert_datetime_to_cftime(datetime.datetime.strptime(time, time_format))
-        for time in times
-    ]
+    plot_times = [time for time in times]
     all_times = dataset.time()
     time_indices = [all_times.index(t) for t in plot_times]
     sampler = time_indices
@@ -385,7 +385,7 @@ def generate_and_save(
 
     times = dataset.time()
 
-    for image_tar, image_lr, index in iter(data_loader):
+    for image_tar, image_lr, index, lead_time in iter(data_loader):
         time_index += 1
         if dist.rank == 0:
             logger.info(f"starting index: {time_index}")  # TODO print on rank zero
@@ -400,7 +400,8 @@ def generate_and_save(
             .to(memory_format=torch.channels_last)
         )
         image_tar = image_tar.to(device=device).to(torch.float32)
-        image_out = generate_fn(image_lr)
+        lead_time = lead_time.to(device=device).to(torch.float32)
+        image_out = generate_fn(image_lr, lead_time)
 
         # for validation - make 3x450x450 to an ordered sequence of 50x50 patches
         # input; 1x3x450x450 --> (1*9*9)x3x50x50
@@ -423,16 +424,16 @@ def generate_and_save(
             )
     end.record()
     end.synchronize()
-    elapsed_time = start.elapsed_time(end) / 1000.0  # Convert ms to s
-    timed_steps = time_index + 1 - warmup_steps
-    if dist.rank == 0:
-        average_time_per_batch_element = elapsed_time / timed_steps / batch_size
-        logger.info(
-            f"Total time to run {timed_steps} and {batch_size} ensembles = {elapsed_time} s"
-        )
-        logger.info(
-            f"Average time per batch element = {average_time_per_batch_element} s"
-        )
+    #elapsed_time = start.elapsed_time(end) / 1000.0  # Convert ms to s
+    #timed_steps = time_index + 1 - warmup_steps
+    #if dist.rank == 0:
+        #average_time_per_batch_element = elapsed_time / timed_steps / batch_size
+        #logger.info(
+        #    f"Total time to run {timed_steps} and {batch_size} ensembles = {elapsed_time} s"
+        #)
+        #logger.info(
+        #    f"Average time per batch element = {average_time_per_batch_element} s"
+        #)
 
     # make sure all the workers are done writing
     for thread in list(writer_threads):
@@ -512,7 +513,6 @@ def generate(
             sampler_kwargs = {
                 key: value for key, value in sampler_kwargs.items() if value is not None
             }
-
             if pretext == "gen":
                 if sampling_method == "deterministic":
                     sampler_fn = ablation_sampler
@@ -599,7 +599,7 @@ def unet_regression(  # TODO a lot of redundancy, need to clean up
     t_hat = torch.tensor(1.0).to(torch.float64).cuda()
 
     # Run regression on just a single batch element and then repeat
-    x_next = net(x_hat[0:1], x_lr, t_hat, class_labels).to(torch.float64)
+    x_next = net(x_hat[0:1], x_lr, t_hat, class_labels, lead_time_label=kwargs["lead_time_label"]).to(torch.float64)
     if x_hat.shape[0] > 1:
         x_next = x_next.repeat([d if i == 0 else 1 for i, d in enumerate(x_hat.shape)])
 
@@ -743,9 +743,7 @@ class NetCDFWriter:
     def write_time(self, time_index, time):
         """Write time information to NetCDF file."""
         time_v = self._f["time"]
-        self._f["time"][time_index] = cftime.date2num(
-            time, time_v.units, time_v.calendar
-        )
+        self._f["time"][time_index] = time[:10]
 
 
 def writer_from_input_dataset(f, dataset):

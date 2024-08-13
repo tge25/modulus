@@ -1,0 +1,341 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+hydra:
+  job:
+    chdir: False
+
+
+## Main options
+res_ckpt_filename: "/lustre/fsw/coreai_climate_earth2/corrdiff/training_output/diffusion_patch_twc_mvp1_test7/checkpoints/EDMPrecondSRV2.0.2690560.mdlus"   
+  # Checkpoint filename for the generative model  
+reg_ckpt_filename: "/lustre/fsw/coreai_climate_earth2/corrdiff/training_output/regression_twc_mvp1/checkpoints/UNet.0.880640.mdlus"
+  # Checkpoint filename for the mean predictor model
+image_outdir: "/lustre/fsw/coreai_climate_earth2/corrdiff/inferences/twc_mvp_full1"
+  # Where to save the output images
+seeds: "0-7"
+  # Random seeds used for generation
+class_idx: null  
+  # Class label. Null is random
+num_steps: 18
+  # Number of sampling steps
+sample_res: "full"
+  # Sampling resolution
+regression_only: false
+  # regression only inference
+diffusion_only: false
+  # diffusion only inference
+sampling_method: stochastic
+  # Sampling method ["stochastic", "deterministic"]
+seed_batch_size: 1
+  # batch size across the seed dimension
+force_fp16: true
+  # Whether to force fp16 precision for the model. If false, it'll use the precision
+  # specified upon training.
+num_writer_workers: 1
+  # number of workers to use for writing file
+  # To support multiple workers a threadsafe version of the netCDF library must be used
+use_torch_compile: False
+  # whether to use torch.compile on the diffusion model
+  # this will make the first time stamp generation very slow due to compilation overheads
+  # but will significantly speed up subsequent inference runs
+
+## Data options
+## Data options
+patch_shape_x: 448
+patch_shape_y: 448
+  # Patch size. Patch-based sampling will be utilized if these dimensions differ from 
+  # img_shape_x and img_shape_y
+overlap_pixels: 4 
+  # Number of overlapping pixels between adjacent patches
+boundary_pixels: 2
+  # Number of boundary pixels to be cropped out. 2 is recommanded to address the boundary
+  # artifact.
+hr_mean_conditioning: true
+  # High-res mean (regression's output) as additional condition
+gridtype: "learnable"
+N_grid_channels: 100
+times:
+  - "2024010306f00"
+  - "2024010306f03"
+  - "2024010306f06"
+  - "2024010306f09"
+  - "2024010306f12"
+  - "2024010306f15"
+  - "2024010306f18"
+  - "2024010306f21"
+  - "2024010306f24"
+  - "2024010706f00"
+  - "2024010706f03"
+  - "2024010706f06"
+  - "2024010706f09"
+  - "2024010706f12"
+  - "2024010706f15"
+  - "2024010706f18"
+  - "2024010706f21"
+  - "2024010706f24"
+  - "2024010818f00"
+  - "2024010818f03"
+  - "2024010818f06"
+  - "2024010818f09"
+  - "2024010818f12"
+  - "2024010818f15"
+  - "2024010818f18"
+  - "2024010818f21"
+  - "2024010818f24"
+  - "2024011012f00"
+  - "2024011012f03"
+  - "2024011012f06"
+  - "2024011012f09"
+  - "2024011012f12"
+  - "2024011012f15"
+  - "2024011012f18"
+  - "2024011012f21"
+  - "2024011012f24"
+  - "2024011812f00"
+  - "2024011812f03"
+  - "2024011812f06"
+  - "2024011812f09"
+  - "2024011812f12"
+  - "2024011812f15"
+  - "2024011812f18"
+  - "2024011812f21"
+  - "2024011812f24"
+  - "2024012118f00"
+  - "2024012118f03"
+  - "2024012118f06"
+  - "2024012118f09"
+  - "2024012118f12"
+  - "2024012118f15"
+  - "2024012118f18"
+  - "2024012118f21"
+  - "2024012118f24"
+  - "2024012312f00"
+  - "2024012312f03"
+  - "2024012312f06"
+  - "2024012312f09"
+  - "2024012312f12"
+  - "2024012312f15"
+  - "2024012312f18"
+  - "2024012312f21"
+  - "2024012312f24"
+  - "2024012800f00"
+  - "2024012800f03"
+  - "2024012800f06"
+  - "2024012800f09"
+  - "2024012800f12"
+  - "2024012800f15"
+  - "2024012800f18"
+  - "2024012800f21"
+  - "2024012800f24"
+  - "2024012812f00"
+  - "2024012812f03"
+  - "2024012812f06"
+  - "2024012812f09"
+  - "2024012812f12"
+  - "2024012812f15"
+  - "2024012812f18"
+  - "2024012812f21"
+  - "2024012812f24"
+  - "2024020806f00"
+  - "2024020806f03"
+  - "2024020806f06"
+  - "2024020806f09"
+  - "2024020806f12"
+  - "2024020806f15"
+  - "2024020806f18"
+  - "2024020806f21"
+  - "2024020806f24"
+  - "2024020818f00"
+  - "2024020818f03"
+  - "2024020818f06"
+  - "2024020818f09"
+  - "2024020818f12"
+  - "2024020818f15"
+  - "2024020818f18"
+  - "2024020818f21"
+  - "2024020818f24"
+  - "2024021018f00"
+  - "2024021018f03"
+  - "2024021018f06"
+  - "2024021018f09"
+  - "2024021018f12"
+  - "2024021018f15"
+  - "2024021018f18"
+  - "2024021018f21"
+  - "2024021018f24"
+  - "2024021512f00"
+  - "2024021512f03"
+  - "2024021512f06"
+  - "2024021512f09"
+  - "2024021512f12"
+  - "2024021512f15"
+  - "2024021512f18"
+  - "2024021512f21"
+  - "2024021512f24"
+  - "2024022012f00"
+  - "2024022012f03"
+  - "2024022012f06"
+  - "2024022012f09"
+  - "2024022012f12"
+  - "2024022012f15"
+  - "2024022012f18"
+  - "2024022012f21"
+  - "2024022012f24"
+  - "2024022212f00"
+  - "2024022212f03"
+  - "2024022212f06"
+  - "2024022212f09"
+  - "2024022212f12"
+  - "2024022212f15"
+  - "2024022212f18"
+  - "2024022212f21"
+  - "2024022212f24"
+  - "2024022400f00"
+  - "2024022400f03"
+  - "2024022400f06"
+  - "2024022400f09"
+  - "2024022400f12"
+  - "2024022400f15"
+  - "2024022400f18"
+  - "2024022400f21"
+  - "2024022400f24"
+  - "2024022506f00"
+  - "2024022506f03"
+  - "2024022506f06"
+  - "2024022506f09"
+  - "2024022506f12"
+  - "2024022506f15"
+  - "2024022506f18"
+  - "2024022506f21"
+  - "2024022506f24"
+  - "2024030318f00"
+  - "2024030318f03"
+  - "2024030318f06"
+  - "2024030318f09"
+  - "2024030318f12"
+  - "2024030318f15"
+  - "2024030318f18"
+  - "2024030318f21"
+  - "2024030318f24"
+  - "2024030406f00"
+  - "2024030406f03"
+  - "2024030406f06"
+  - "2024030406f09"
+  - "2024030406f12"
+  - "2024030406f15"
+  - "2024030406f18"
+  - "2024030406f21"
+  - "2024030406f24"
+  - "2024030500f00"
+  - "2024030500f03"
+  - "2024030500f06"
+  - "2024030500f09"
+  - "2024030500f12"
+  - "2024030500f15"
+  - "2024030500f18"
+  - "2024030500f21"
+  - "2024030500f24"
+  - "2024030812f00"
+  - "2024030812f03"
+  - "2024030812f06"
+  - "2024030812f09"
+  - "2024030812f12"
+  - "2024030812f15"
+  - "2024030812f18"
+  - "2024030812f21"
+  - "2024030812f24"
+  - "2024031118f00"
+  - "2024031118f03"
+  - "2024031118f06"
+  - "2024031118f09"
+  - "2024031118f12"
+  - "2024031118f15"
+  - "2024031118f18"
+  - "2024031118f21"
+  - "2024031118f24"
+  - "2024031412f00"
+  - "2024031412f03"
+  - "2024031412f06"
+  - "2024031412f09"
+  - "2024031412f12"
+  - "2024031412f15"
+  - "2024031412f18"
+  - "2024031412f21"
+  - "2024031412f24"
+  - "2024032318f00"
+  - "2024032318f03"
+  - "2024032318f06"
+  - "2024032318f09"
+  - "2024032318f12"
+  - "2024032318f15"
+  - "2024032318f18"
+  - "2024032318f21"
+  - "2024032318f24"
+  - "2024032606f00"
+  - "2024032606f03"
+  - "2024032606f06"
+  - "2024032606f09"
+  - "2024032606f12"
+  - "2024032606f15"
+  - "2024032606f18"
+  - "2024032606f21"
+  - "2024032606f24"
+  - "2024040506f00"
+  - "2024040506f03"
+  - "2024040506f06"
+  - "2024040506f09"
+  - "2024040506f12"
+  - "2024040506f15"
+  - "2024040506f18"
+  - "2024040506f21"
+  - "2024040506f24"
+
+## Weather data options
+dataset:
+  type: "twc_mvp1"
+  ds_factor: 4
+  train: False
+  train_years: [2020, 2021, 2022, 2023,]
+  valid_years: [2024]
+  hrrr_window: [[1,1057], [4,1796]] # need dims to be divisible by 16 [[0,1024], [0,1024]]
+  sample_shape: null #[1024, 1024] # 1024,1024 w/ 1 batch 4 hrrr channels and all era5 channels is 77gb
+  train_test_split: False
+  
+
+## Deterministic sampler options
+sigma_min: null
+  # Lowest noise level
+sigma_max: null
+  # Highest noise level
+rho: 7
+  # Time step exponent
+solver: euler
+  # ODE solver [euler, heun]
+discretization: "edm"
+  # Time step discretization [vp, ve, iddpm, edm]
+schedule: "linear"
+  # noise schedule sigma(t) [vp, ve, linear]
+scaling: null
+  # Signal scaling s(t) [vp, none]
+S_churn: 0
+  # Stochasticity strength
+S_min: 0
+  # Stochasticity min noise level
+S_max: .inf 
+  # Stochasticity max noise level
+S_noise: 1
+  # Stochasticity noise inflation

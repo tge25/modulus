@@ -125,7 +125,7 @@ class UNet(Module):  # TODO a lot of redundancy, need to clean up
 
     def forward(
         self, x, img_lr, sigma, class_labels=None, force_fp32=False, **model_kwargs
-    ):
+    ):  
         # SR: concatenate input channels
         if img_lr is None:
             x = x

@@ -158,7 +158,7 @@ def _unique_model_names(
             model0 = model0.module
         # Base name of model is meta.name unless pytorch model
         base_name = model0.__class__.__name__
-        if isinstance(model0, modulus.models.Module):
+        if isinstance(model0, modulus.models.Module) and (base_name!="EDMPrecondSRV2"):
             base_name = model0.meta.name
         # If we have multiple models of the same name, introduce another index
         if base_name in model_dict:

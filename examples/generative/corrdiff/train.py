@@ -91,22 +91,23 @@ def main(cfg: DictConfig) -> None:
     # Parse image configuration & update model args
     dataset_channels = len(dataset.input_channels())
     img_in_channels = dataset_channels
+    reg_img_in_channels = dataset_channels
     img_shape = dataset.image_shape()
     img_out_channels = len(dataset.output_channels())
     if cfg.model.hr_mean_conditioning:
         img_in_channels += img_out_channels
 
     # Parse the patch shape
-    if hasattr(cfg, "training.hp.patch_shape_x"):
+    if 'training' in cfg and 'hp' in cfg['training'] and 'patch_shape_x' in cfg['training']['hp']:
         patch_shape_x = cfg.training.hp.patch_shape_x
     else:
         patch_shape_x = None
-    if hasattr(cfg, "training.hp.patch_shape_y"):
+    if 'training' in cfg and 'hp' in cfg['training'] and 'patch_shape_y' in cfg['training']['hp']:
         patch_shape_y = cfg.training.hp.patch_shape_y
     else:
         patch_shape_y = None
-    patch_shape = (patch_shape_y, patch_shape_x)
-    patch_shape, img_shape = set_patch_shape(img_shape, patch_shape)
+    patch_shape = (patch_shape_y, patch_shape_x)    
+    img_shape, patch_shape = set_patch_shape(img_shape, patch_shape)  
     if patch_shape != img_shape:
         logger0.info("Patch-based training enabled")
     else:
@@ -120,13 +121,24 @@ def main(cfg: DictConfig) -> None:
         "img_out_channels": img_out_channels,
         "img_resolution": list(img_shape),
         "use_fp16": fp16,
+        "lead_time_channels": cfg.model.lead_time_channels,
+        "checkpoint_level": cfg.training.perf.songunet_checkpoint_level,
     }
+
+    additional_regression_args = {
+        "img_out_channels": img_out_channels,
+        "img_resolution": list(img_shape),
+        "use_fp16": fp16,
+        "lead_time_channels": cfg.model.lead_time_channels,
+        "checkpoint_level": cfg.training.perf.songunet_checkpoint_level,
+    }
+
     if cfg.model.name == "regression":
         model = UNet(
             img_channels=4,
             N_grid_channels=4,
             embedding_type="zero",
-            img_in_channels=img_in_channels + 4,
+            img_in_channels=img_in_channels + 4 + cfg.model.lead_time_channels,
             **additional_model_args,
         )
     elif cfg.model.name == "diffusion":
@@ -134,15 +146,23 @@ def main(cfg: DictConfig) -> None:
             img_channels=4,
             gridtype="sinusoidal",
             N_grid_channels=4,
-            img_in_channels=img_in_channels + 4,
+            img_in_channels=img_in_channels + 4 + cfg.model.lead_time_channels,
             **additional_model_args,
         )
     elif cfg.model.name == "patched_diffusion":
+        regression_net = UNet(
+            img_channels=4,
+            N_grid_channels=4,
+            embedding_type="zero",
+            img_in_channels=reg_img_in_channels + 8,
+            **additional_regression_args,
+        )
+                
         model = EDMPrecondSRV2(
             img_channels=4,
             gridtype="learnable",
             N_grid_channels=100,
-            img_in_channels=img_in_channels + 100,
+            img_in_channels=img_in_channels + 100 + cfg.model.lead_time_channels,
             **additional_model_args,
         )
     else:
@@ -158,7 +178,6 @@ def main(cfg: DictConfig) -> None:
             output_device=dist.device,
             find_unused_parameters=dist.find_unused_parameters,
         )
-
     # Load the regression checkpoint if applicable
     if hasattr(cfg.training.io, "regression_checkpoint_path"):
         regression_checkpoint_path = to_absolute_path(
@@ -166,14 +185,15 @@ def main(cfg: DictConfig) -> None:
         )
         if not os.path.exists(regression_checkpoint_path):
             raise FileNotFoundError(
-                "Expected a this regression checkpoint but not found: {regression_checkpoint_path}"
+                f"Expected a this regression checkpoint but not found: {regression_checkpoint_path}"
             )
-        regression_net = Module.from_checkpoint(regression_checkpoint_path)
+        load_checkpoint(path=regression_checkpoint_path, models=regression_net, device=dist.device)
+        #regression_net = Module.from_checkpoint(regression_checkpoint_path)
         regression_net.eval().requires_grad_(False).to(dist.device)
         logger0.success("Loaded the pre-trained regression model")
 
     # Instantiate the loss function
-    patch_num = getattr(cfg.training, "patch_num", 1)
+    patch_num = getattr(cfg.training.hp, "patch_num", 1)
     if cfg.model.name in ("diffusion", "patched_diffusion"):
         loss_fn = ResLoss(
             regression_net=regression_net,
@@ -181,6 +201,7 @@ def main(cfg: DictConfig) -> None:
             img_shape_y=img_shape[0],
             patch_shape_x=patch_shape[1],
             patch_shape_y=patch_shape[0],
+            P_mean=getattr(cfg.training.hp, "P_mean", 0),
             patch_num=patch_num,
             hr_mean_conditioning=cfg.model.hr_mean_conditioning,
         )
@@ -191,7 +212,6 @@ def main(cfg: DictConfig) -> None:
     optimizer = torch.optim.Adam(
         params=model.parameters(), lr=cfg.training.hp.lr, betas=[0.9, 0.999], eps=1e-8
     )
-
     # Record the current time to measure the duration of subsequent operations.
     start_time = time.time()
 
@@ -210,11 +230,10 @@ def main(cfg: DictConfig) -> None:
     cur_nimg = load_checkpoint(
         path="checkpoints", models=model, optimizer=optimizer, device=dist.device
     )
-
     ############################################################################
     #                            MAIN TRAINING LOOP                            #
     ############################################################################
-
+    conv2 = None
     logger0.info(f"Training for {cfg.training.hp.training_duration} images...")
     cur_tick = 0
     tick_start_nimg = cur_nimg
@@ -224,16 +243,18 @@ def main(cfg: DictConfig) -> None:
         optimizer.zero_grad(set_to_none=True)
         loss_accum = 0
         for _ in range(num_accumulation_rounds):
-            img_clean, img_lr, labels = next(dataset_iterator)
+            img_clean, img_lr, labels, lead_time_label = next(dataset_iterator)
             img_clean = img_clean.to(dist.device).to(torch.float32).contiguous()
             img_lr = img_lr.to(dist.device).to(torch.float32).contiguous()
             labels = labels.to(dist.device).contiguous()
+            lead_time_label = lead_time_label.to(dist.device).contiguous()
             with torch.autocast("cuda", dtype=amp_dtype, enabled=enable_amp):
                 loss = loss_fn(
                     net=model,
                     img_clean=img_clean,
                     img_lr=img_lr,
                     labels=labels,
+                    lead_time_label=lead_time_label,
                     augment_pipe=None,
                 )
             loss = loss.sum() / batch_gpu_total
@@ -249,15 +270,17 @@ def main(cfg: DictConfig) -> None:
 
         # Update weights.
         for g in optimizer.param_groups:
-            lr_rampup = 10000000  # ramp up the learning rate within 10M images
+            lr_rampup = 100000  # ramp up the learning rate within 1M images
             g["lr"] = cfg.training.hp.lr * min(cur_nimg / lr_rampup, 1)
-            g["lr"] *= cfg.training.hp.lr_decay ** ((cur_nimg - lr_rampup) // 5e6)
+            g["lr"] *= cfg.training.hp.lr_decay ** ((cur_nimg - lr_rampup) // 1e6)
             current_lr = g["lr"]
             if dist.rank == 0:
                 writer.add_scalar("learning_rate", current_lr, cur_nimg)
+
         handle_and_clip_gradients(
             model, grad_clip_threshold=cfg.training.hp.grad_clip_threshold
         )
+        
         optimizer.step()
 
         # Validation
@@ -266,9 +289,11 @@ def main(cfg: DictConfig) -> None:
             if cur_tick % cfg.training.io.validation_freq == 0:
                 with torch.no_grad():
                     for _ in range(cfg.training.io.validation_steps):
-                        img_clean_valid, img_lr_valid, labels_valid = next(
+                        img_clean_valid, img_lr_valid, labels_valid, lead_time_label_valid = next(
                             validation_dataset_iterator
                         )
+
+                        lead_time_label_valid = lead_time_label_valid.to(dist.device).contiguous()
 
                         img_clean_valid = (
                             img_clean_valid.to(dist.device)
@@ -284,6 +309,7 @@ def main(cfg: DictConfig) -> None:
                             img_clean=img_clean_valid,
                             img_lr=img_lr_valid,
                             labels=labels_valid,
+                            lead_time_label=lead_time_label_valid,
                             augment_pipe=None,
                         )
                         loss_valid = (loss_valid.sum() / batch_gpu_total).cpu().item()
@@ -302,6 +328,7 @@ def main(cfg: DictConfig) -> None:
                         writer.add_scalar(
                             "validation_loss", average_valid_loss, cur_nimg
                         )
+                    average_valid_loss = average_valid_loss.cpu().item()
 
         cur_nimg += cfg.training.hp.total_batch_size
         done = cur_nimg >= cfg.training.hp.training_duration
@@ -313,11 +340,22 @@ def main(cfg: DictConfig) -> None:
         # Print stats
         tick_end_time = time.time()
         if dist.rank == 0:
+            for name, para in model.named_parameters():
+                if "enc." in name:
+                    conv = para.detach().clone()
+                    break
+            if conv2 is not None:
+                diff = torch.mean(torch.abs(conv2-conv))
+            else:
+                diff = 0
+            conv2 = conv.clone()
             fields = []
             fields += [f"tick {cur_tick:<5d}"]
             fields += [f"samples {(cur_nimg):<9.1f}"]
-            fields += [f"training_loss {average_loss:<7.2f}"]
-            fields += [f"learning_rate {current_lr:<7.8f}"]
+            fields += [f"training_loss {average_loss:<1.5e}"]
+            fields += [f"validation_loss {average_valid_loss:<1.5e}"]
+            fields += [f"learning_rate {current_lr:<1.5e}"]
+            fields += [f"diff {diff:<1.5e}"]
             fields += [f"total_sec {(tick_end_time - start_time):<7.1f}"]
             fields += [f"sec_per_tick {(tick_end_time - tick_start_time):<7.1f}"]
             fields += [

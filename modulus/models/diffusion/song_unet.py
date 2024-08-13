@@ -490,6 +490,8 @@ class SongUNetPosEmbd(SongUNet):
         resample_filter: List[int] = [1, 1],
         gridtype: str = "sinusoidal",
         N_grid_channels: int = 4,
+        lead_time_channels: int = None,
+        lead_time_steps: int = 9,
         checkpoint_level: int = 0,
     ):
         super().__init__(
@@ -515,23 +517,34 @@ class SongUNetPosEmbd(SongUNet):
 
         self.gridtype = gridtype
         self.N_grid_channels = N_grid_channels
-        self.pos_embd = self._get_positional_embedding()
+        self.lead_time_channels = lead_time_channels
+        self.lead_time_steps = lead_time_steps
+        self.pos_embd = self._get_positional_embedding()        
+        if lead_time_channels:
+            self.lt_embd = self._get_lead_time_embedding()
+        self.m = torch.nn.Sigmoid()
+
 
     @nvtx.annotate(message="SongUNet", color="blue")
     def forward(
-        self, x, noise_labels, class_labels, global_index=None, augment_labels=None
+        self, x, noise_labels, class_labels, lead_time_label=None, global_index=None, augment_labels=None
     ):
-        # append positional embedding to input conditioning
+        # append positional embedding and lead time embedding to input conditioning. Due to GPU memory usage, this code assumes that lead time is the same across all the batches/patches in each gpu
         if self.pos_embd is not None:
-            selected_pos_embd = self.positional_embedding_indexing(x, global_index)
+            if self.lead_time_channels:
+                pos_embd = torch.cat((self.pos_embd.to(x.device), torch.reshape(self.lt_embd[lead_time_label.int()], (self.lead_time_channels, self.img_shape_y, self.img_shape_x)).to(x.device)), dim=0)
+            else:
+                pos_embd = self.pos_embd
+            selected_pos_embd = self.positional_embedding_indexing(x, pos_embd, global_index)
             x = torch.cat((x, selected_pos_embd), dim=1)
+        out = super().forward(x, noise_labels, class_labels, augment_labels)
+        out[:,-4:] = self.m(out[:,-4:])
+        return out
 
-        return super().forward(x, noise_labels, class_labels, augment_labels)
-
-    def positional_embedding_indexing(self, x, global_index):
+    def positional_embedding_indexing(self, x, pos_embd, global_index):
         if global_index is None:
             selected_pos_embd = (
-                self.pos_embd.to(x.dtype)
+                pos_embd.to(x.dtype)
                 .to(x.device)[None]
                 .expand((x.shape[0], -1, -1, -1))
             )
@@ -542,18 +555,24 @@ class SongUNetPosEmbd(SongUNet):
             global_index = torch.reshape(
                 torch.permute(global_index, (1, 0, 2, 3)), (2, -1)
             )  # (B, 2, X, Y) to (2, B*X*Y)
-            selected_pos_embd = self.pos_embd.to(x.device)[
+            selected_pos_embd = pos_embd.to(x.device)[
                 :, global_index[0], global_index[1]
             ]  # (N_pe, B*X*Y)
             selected_pos_embd = (
                 torch.permute(
-                    torch.reshape(selected_pos_embd, (self.pos_embd.shape[0], B, X, Y)),
+                    torch.reshape(selected_pos_embd, (pos_embd.shape[0], B, X, Y)),
                     (1, 0, 2, 3),
                 )
                 .to(x.device)
                 .to(x.dtype)
             )  # (B, N_pe, X, Y)
         return selected_pos_embd
+
+    def _get_lead_time_embedding(self):
+        grid = torch.nn.Parameter(
+            torch.randn(self.lead_time_steps, self.lead_time_channels, self.img_shape_y, self.img_shape_x)
+        )
+        return grid
 
     def _get_positional_embedding(self):
         if self.N_grid_channels == 0:

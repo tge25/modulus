@@ -20,13 +20,14 @@ hydra:
 
 
 ## Main options
-res_ckpt_filename: "/lustre/fsw/coreai_climate_earth2/corrdiff/training_output/diffusion_patch_twc_mvp1_test7/checkpoints/EDMPrecondSRV2.0.2690560.mdlus"   
+model_type: v3
+res_ckpt_filename: "/lustre/fsw/coreai_climate_earth2/corrdiff/training_output/diffusion_patch_twc_mvp1_2_mse2/checkpoints/EDMPrecondSRV2.0.1807360.mdlus"   
   # Checkpoint filename for the generative model  
-reg_ckpt_filename: "/lustre/fsw/coreai_climate_earth2/corrdiff/training_output/regression_twc_mvp1/checkpoints/UNet.0.880640.mdlus"
+reg_ckpt_filename: "/lustre/fsw/coreai_climate_earth2/corrdiff/training_output/regression_twc_mvp1_2_correctEntropy/checkpoints/UNet.0.1960960.mdlus"
   # Checkpoint filename for the mean predictor model
-image_outdir: "/lustre/fsw/coreai_climate_earth2/corrdiff/inferences/twc_mvp_regression_2"
+image_outdir: "/lustre/fsw/coreai_climate_earth2/corrdiff/inferences/twc_mvp_diffusion_crossentropy_mse_2"
   # Where to save the output images
-seeds: "0-1"
+seeds: "0-7"
   # Random seeds used for generation
 class_idx: null  
   # Class label. Null is random
@@ -34,7 +35,7 @@ num_steps: 18
   # Number of sampling steps
 sample_res: "full"
   # Sampling resolution
-regression_only: true
+regression_only: false
   # regression only inference
 diffusion_only: false
   # diffusion only inference
@@ -52,7 +53,6 @@ use_torch_compile: False
   # whether to use torch.compile on the diffusion model
   # this will make the first time stamp generation very slow due to compilation overheads
   # but will significantly speed up subsequent inference runs
-inference_mode: regression
 
 ## Data options
 ## Data options
@@ -73,6 +73,14 @@ times:
   # winter storm
   - "2024011212f00"
   - "2024011212f03"
+  - "2024011212f06"
+  - "2024011212f09"
+  - "2024011212f12"
+  - "2024011212f15"
+  - "2024011212f18"
+  - "2024011212f21"
+  - "2024011212f24"
+
 
 ## Weather data options
 dataset:

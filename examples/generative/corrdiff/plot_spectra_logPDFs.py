@@ -28,11 +28,6 @@ import xarray
 import zarr
 from scipy.signal import periodogram
 
-#path_rf = "s3://cwb-diffusions/baselines/rf/era5-cwb-v3/validation_big/samples.nc"
-#path_reg = "s3://cwb-diffusions/baselines/regression/era5-cwb-v3/validation_big/samples.nc"
-#path_intera5 = "s3://cwb-diffusions/baselines/era5/era5-cwb-v3/validation_big/samples.nc"
-#path_resdiff = "s3://cwb-diffusions/generations/era5-cwb-v3/validation_big/samples.zarr"
-#baslines_dir = "/lustre/fsw/nvresearch/nbrenowitz/diffusions/baselines/"
 path_rf = "/lustre/fsw/coreai_climate_earth2/corrdiff/inferences/twc_mvp_full1_0.nc"
 vars = ["u10m", "v10m", "t2m", "precip", "cat_snow", "cat_ice", "cat_freez", "cat_rain"]
 

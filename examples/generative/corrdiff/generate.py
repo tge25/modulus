@@ -30,7 +30,7 @@ import torch
 from torch.distributed import gather
 import torch._dynamo
 import tqdm
-
+import numpy as np
 
 from modulus.distributed import DistributedManager
 from modulus.launch.logging import PythonLogger, RankZeroLoggingWrapper
@@ -46,7 +46,7 @@ from datasets.time import convert_datetime_to_cftime, time_range
 
 
 time_format = "%Y-%m-%dT%H:%M:%S"
-
+model_type = 'v2'
 
 @hydra.main(version_base="1.2", config_path="conf", config_name="config_generate")
 def main(cfg: DictConfig) -> None:
@@ -93,7 +93,6 @@ def main(cfg: DictConfig) -> None:
     DistributedManager.initialize()
     dist = DistributedManager()
     device = dist.device
-    print("device", device)
 
     if times_range is not None:
         times = []
@@ -207,8 +206,7 @@ def main(cfg: DictConfig) -> None:
         # Overhead of compiling regression network outweights any benefits
         if net_res:
             net_res = torch.compile(net_res, mode=compile_mode)
-    print(net_reg)
-    print(net_res)
+
     def generate_fn(image_lr, lead_time):
         """Function to generate an image
 
@@ -387,6 +385,13 @@ def generate_and_save(
     times = dataset.time()
 
     for image_tar, image_lr, index, lead_time in iter(data_loader):
+        
+        if model_type == 'v3':
+            precip = torch.sum(image_tar[:,4:, ], axis=1, keepdim = True)
+            hrrr_non_precip = ((precip == 0).float())
+            image_tar = torch.cat((image_tar, hrrr_non_precip), dim=1)
+            image_tar[:, 4:] = image_tar[:, 4:]/torch.sum(image_tar[:,4:, ], axis=1, keepdim = True)
+
         time_index += 1
         if dist.rank == 0:
             logger.info(f"starting index: {time_index}")  # TODO print on rank zero
@@ -464,7 +469,7 @@ def generate(
             from edmss import edm_sampler
         except ImportError:
             raise ImportError(
-                "Please get the edm_sampler by running: pip install git+https://github.com/mnabian/edmss.git"
+                "Please get the edm_sampler by running: pip install git+https://github.com/tge25/edmss.git"
             )
         sampler_kwargs.update(({"img_shape": img_shape}))
 
@@ -494,15 +499,28 @@ def generate(
 
             # Pick latents and labels.
             rnd = StackedRandomGenerator(device, batch_seeds)
-            latents = rnd.randn(
-                [
-                    seed_batch_size,
-                    img_out_channels,
-                    img_shape[1],
-                    img_shape[0],
-                ],
-                device=device,
-            ).to(memory_format=torch.channels_last)
+
+            if model_type == 'v3':
+                latents = rnd.randn(
+                    [
+                        seed_batch_size,
+                        img_out_channels + 1,
+                        img_shape[1],
+                        img_shape[0],
+                    ],
+                    device=device,
+                ).to(memory_format=torch.channels_last)
+
+            else:
+                latents = rnd.randn(
+                    [
+                        seed_batch_size,
+                        img_out_channels,
+                        img_shape[1],
+                        img_shape[0],
+                    ],
+                    device=device,
+                ).to(memory_format=torch.channels_last)
 
             class_labels = None
             if net.label_dim:
@@ -602,6 +620,7 @@ def unet_regression(  # TODO a lot of redundancy, need to clean up
     # Run regression on just a single batch element and then repeat
     print(x_hat.shape, x_lr.shape)
     x_next = net(x_hat[0:1], x_lr, t_hat, class_labels, lead_time_label=kwargs["lead_time_label"]).to(torch.float64)
+
     if x_hat.shape[0] > 1:
         x_next = x_next.repeat([d if i == 0 else 1 for i, d in enumerate(x_hat.shape)])
 
@@ -644,7 +663,15 @@ def save_images(
 
     image_tar2 = image_tar[0].unsqueeze(0)
     image_tar2 = image_tar2.cpu().numpy()
-    image_tar2 = dataset.denormalize_output(image_tar2)
+    image_tar2 = image_tar2.astype(np.float32)
+
+    
+    if dataset.normalize:
+        if model_type == "v3":
+            image_tar2 *= np.concatenate((dataset.stds_hrrr[np.newaxis], np.ones((1,1,1,1))),axis=1)
+            image_tar2 += np.concatenate((dataset.means_hrrr[np.newaxis], np.zeros((1,1,1,1))),axis=1)
+        else:
+            image_tar2 = dataset.denormalize_output(image_tar2)
 
     # some runtime assertions
     if image_tar2.ndim != 4:
@@ -657,13 +684,27 @@ def save_images(
 
         # Denormalize the input and outputs
         image_out2 = image_out2.cpu().numpy()
-        image_out2 = dataset.denormalize_output(image_out2)
+        image_out2 = image_out2.astype(np.float32)
+        if dataset.normalize:
+            if model_type == "v3":
+                image_out2 *= np.concatenate((dataset.stds_hrrr[np.newaxis], np.ones((1,1,1,1))),axis=1)
+                image_out2 += np.concatenate((dataset.means_hrrr[np.newaxis], np.zeros((1,1,1,1))),axis=1)
+            else:
+                image_out2 = dataset.denormalize_output(image_out2)
 
         time = times[t_index]
         writer.write_time(time_index, time)
         for channel_idx in range(image_out2.shape[1]):
-            info = dataset.output_channels()[channel_idx]
-            channel_name = _get_name(info)
+            if model_type == "v3":
+                if channel_idx<image_out2.shape[1]-1:
+                    info = dataset.output_channels()[channel_idx]
+                    channel_name = _get_name(info)
+                else:
+                    channel_name = "cat_non"
+            else:
+                info = dataset.output_channels()[channel_idx]
+                channel_name = _get_name(info)       
+
             truth = image_tar2[0, channel_idx]
 
             writer.write_truth(channel_name, time_index, truth)
@@ -676,8 +717,6 @@ def save_images(
             info = input_channel_info[channel_idx]
             channel_name = _get_name(info)
             writer.write_input(channel_name, time_index, image_lr2[0, channel_idx])
-            if channel_idx == image_lr2.shape[1] - 1:
-                break
 
 
 class NetCDFWriter:
@@ -722,6 +761,12 @@ class NetCDFWriter:
             self.truth_group.createVariable(name, "f", dimensions=("time", "y", "x"))
             self.prediction_group.createVariable(
                 name, "f", dimensions=("ensemble", "time", "y", "x")
+            )
+
+        if model_type == "v3":
+            self.truth_group.createVariable("cat_non", "f", dimensions=("time", "y", "x"))
+            self.prediction_group.createVariable(
+                "cat_non", "f", dimensions=("ensemble", "time", "y", "x")
             )
 
         # setup input data in netCDF

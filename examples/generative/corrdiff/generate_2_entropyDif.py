@@ -30,7 +30,7 @@ import torch
 from torch.distributed import gather
 import torch._dynamo
 import tqdm
-
+import numpy as np
 
 from modulus.distributed import DistributedManager
 from modulus.launch.logging import PythonLogger, RankZeroLoggingWrapper
@@ -207,8 +207,7 @@ def main(cfg: DictConfig) -> None:
         # Overhead of compiling regression network outweights any benefits
         if net_res:
             net_res = torch.compile(net_res, mode=compile_mode)
-    print(net_reg)
-    print(net_res)
+
     def generate_fn(image_lr, lead_time):
         """Function to generate an image
 
@@ -273,7 +272,8 @@ def main(cfg: DictConfig) -> None:
             elif inference_mode == "diffusion":
                 image_out = image_res
             else:
-                image_out = image_reg + image_res
+                image_out = image_res
+                image_out[:,:4] = image_reg[:,:4] + image_res[:,:4]
 
             # reshape: (1*9*9)x3x50x50  --> 1x3x450x450
             if sample_res != "full":
@@ -387,6 +387,12 @@ def generate_and_save(
     times = dataset.time()
 
     for image_tar, image_lr, index, lead_time in iter(data_loader):
+
+        precip = torch.sum(image_tar[:,4:, ], axis=1, keepdim = True)
+        hrrr_non_precip = ((precip == 0).float())
+        image_tar = torch.cat((image_tar, hrrr_non_precip), dim=1)
+        image_tar[:, 4:] = image_tar[:, 4:]/torch.sum(image_tar[:,4:, ], axis=1, keepdim = True)
+
         time_index += 1
         if dist.rank == 0:
             logger.info(f"starting index: {time_index}")  # TODO print on rank zero
@@ -497,7 +503,7 @@ def generate(
             latents = rnd.randn(
                 [
                     seed_batch_size,
-                    img_out_channels,
+                    img_out_channels + 1,
                     img_shape[1],
                     img_shape[0],
                 ],
@@ -600,8 +606,10 @@ def unet_regression(  # TODO a lot of redundancy, need to clean up
     t_hat = torch.tensor(1.0).to(torch.float64).cuda()
 
     # Run regression on just a single batch element and then repeat
-    print(x_hat.shape, x_lr.shape)
     x_next = net(x_hat[0:1], x_lr, t_hat, class_labels, lead_time_label=kwargs["lead_time_label"]).to(torch.float64)
+
+    x_next[:,4:] = x_next[:,4:].softmax(dim=1)
+
     if x_hat.shape[0] > 1:
         x_next = x_next.repeat([d if i == 0 else 1 for i, d in enumerate(x_hat.shape)])
 
@@ -644,7 +652,11 @@ def save_images(
 
     image_tar2 = image_tar[0].unsqueeze(0)
     image_tar2 = image_tar2.cpu().numpy()
-    image_tar2 = dataset.denormalize_output(image_tar2)
+    image_tar2 = image_tar2.astype(np.float32)
+    if dataset.normalize:
+        print(dataset.stds_hrrr[np.newaxis].shape, image_tar2.shape)
+        image_tar2 *= np.concatenate((dataset.stds_hrrr[np.newaxis], np.ones((1,1,1,1))),axis=1)
+        image_tar2 += np.concatenate((dataset.means_hrrr[np.newaxis], np.zeros((1,1,1,1))),axis=1)
 
     # some runtime assertions
     if image_tar2.ndim != 4:
@@ -657,13 +669,19 @@ def save_images(
 
         # Denormalize the input and outputs
         image_out2 = image_out2.cpu().numpy()
-        image_out2 = dataset.denormalize_output(image_out2)
+        image_out2 = image_out2.astype(np.float32)
+        if dataset.normalize:
+            image_out2 *= np.concatenate((dataset.stds_hrrr[np.newaxis], np.ones((1,1,1,1))),axis=1)
+            image_out2 += np.concatenate((dataset.means_hrrr[np.newaxis], np.zeros((1,1,1,1))),axis=1)
 
         time = times[t_index]
         writer.write_time(time_index, time)
         for channel_idx in range(image_out2.shape[1]):
-            info = dataset.output_channels()[channel_idx]
-            channel_name = _get_name(info)
+            if channel_idx<image_out2.shape[1]-1:
+                info = dataset.output_channels()[channel_idx]
+                channel_name = _get_name(info)
+            else:
+                channel_name = "cat_non"
             truth = image_tar2[0, channel_idx]
 
             writer.write_truth(channel_name, time_index, truth)
@@ -676,8 +694,6 @@ def save_images(
             info = input_channel_info[channel_idx]
             channel_name = _get_name(info)
             writer.write_input(channel_name, time_index, image_lr2[0, channel_idx])
-            if channel_idx == image_lr2.shape[1] - 1:
-                break
 
 
 class NetCDFWriter:
@@ -723,6 +739,10 @@ class NetCDFWriter:
             self.prediction_group.createVariable(
                 name, "f", dimensions=("ensemble", "time", "y", "x")
             )
+        self.truth_group.createVariable("cat_non", "f", dimensions=("time", "y", "x"))
+        self.prediction_group.createVariable(
+            "cat_non", "f", dimensions=("ensemble", "time", "y", "x")
+        )
 
         # setup input data in netCDF
 

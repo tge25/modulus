@@ -14,28 +14,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-hydra:
-  job:
-    chdir: true
-    name: diffusion_patch_twc_mvp1_test7_mse
-  run:
-    dir: /lustre/fsw/coreai_climate_earth2/corrdiff/training_output/${hydra:job.name}
-
-# Get defaults
-defaults:
-
-  # Dataset
-  - dataset/twc_mvp1
-
-  # Model
-  - model/corrdiff_patched_diffusion
-  #- model/corrdiff_diffusion
-  #- model/corrdiff_patched_diffusion
-
-  # Training
-  - training/corrdiff_patched_diffusion
-  #- training/corrdiff_diffusion
-  #- training/corrdiff_patched_diffusion
-
-  # Validation
-  - validation/basic
+name: regression
+  # Name of the preconditioner
+hr_mean_conditioning: False
+  # High-res mean (regression's output) as additional condition
+lead_time_channels: 20

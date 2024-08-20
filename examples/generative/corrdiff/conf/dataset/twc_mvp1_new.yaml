@@ -1,3 +1,4 @@
+
 # SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
@@ -14,28 +15,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-hydra:
-  job:
-    chdir: true
-    name: diffusion_patch_twc_mvp1_test7_mse
-  run:
-    dir: /lustre/fsw/coreai_climate_earth2/corrdiff/training_output/${hydra:job.name}
-
-# Get defaults
-defaults:
-
-  # Dataset
-  - dataset/twc_mvp1
-
-  # Model
-  - model/corrdiff_patched_diffusion
-  #- model/corrdiff_diffusion
-  #- model/corrdiff_patched_diffusion
-
-  # Training
-  - training/corrdiff_patched_diffusion
-  #- training/corrdiff_diffusion
-  #- training/corrdiff_patched_diffusion
-
-  # Validation
-  - validation/basic
+type: "twc_mvp1_new"
+ds_factor: 4
+train: True
+train_years: [2020, 2021, 2022, 2023,]
+valid_years: [2024]
+hrrr_window: [[1,1057], [4,1796]] # need dims to be divisible by 16 [[0,1024], [0,1024]]
+sample_shape: null #[1024, 1024] # 1024,1024 w/ 1 batch 4 hrrr channels and all era5 channels is 77gb
+train_test_split: True

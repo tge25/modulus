@@ -47,7 +47,7 @@ perf:
 
 # I/O
 io:
-    regression_checkpoint_path: /lustre/fsw/coreai_climate_earth2/corrdiff/training_output/regression_twc_mvp1/checkpoints/
+    regression_checkpoint_path: /lustre/fsw/coreai_climate_earth2/corrdiff/training_output/regression_twc_mvp1_test7/checkpoints/UNet.0.2176000.mdlus
     # Where to load the regression checkpoint
     print_progress_freq: 5000
     # How often to print progress

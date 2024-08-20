@@ -87,7 +87,8 @@ def handle_and_clip_gradients(model, grad_clip_threshold=None):
 
     # Clip gradients if a threshold is provided
     if grad_clip_threshold is not None:
-        torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_threshold)
+        return torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_threshold)
+    return 0
 
 def parse_model_args(args):
     """Convert ListConfig values in args to tuples."""

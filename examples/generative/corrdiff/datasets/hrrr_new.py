@@ -135,6 +135,7 @@ class HrrrForecastGEFSDataset(DownscalingDataset):
         self.means_gefs_isobaric = np.load(means_file_isobaric)[kept_gefs_isobaric_channels, None, None]
         self.stds_gefs_isobaric = np.load(stds_file_isobaric)[kept_gefs_isobaric_channels, None, None]
 
+
     def _get_hrrr_channel_names(self):
         if self.hrrr_channels:
             kept_hrrr_channels = [x for x in self.hrrr_channels if x in self.base_hrrr_channels]
@@ -143,7 +144,7 @@ class HrrrForecastGEFSDataset(DownscalingDataset):
         else:
             kept_hrrr_channels = self.base_hrrr_channels
 
-        return list(kept_hrrr_channels)
+        return list(kept_hrrr_channels) + ["cat_nonprecip"]
 
     def _get_gefs_surface_channel_names(self):
         if self.gefs_surface_channels:
@@ -264,9 +265,9 @@ class HrrrForecastGEFSDataset(DownscalingDataset):
         else:
             first_sample = datetime(year=first_year, month=1, day=1, hour=0, minute=0, second=0)
         if last_year == 2024:
-            last_sample = datetime(year=2024, month=7, day=31, hour=18, minute=0, second=0)
+            last_sample = datetime(year=2024, month=7, day=31, hour=19, minute=0, second=0)
         else:
-            last_sample = datetime(year=last_year, month=12, day=31, hour=18, minute=0, second=0)
+            last_sample = datetime(year=last_year, month=12, day=31, hour=19, minute=0, second=0)
         
         logging.info("First sample is {}".format(first_sample)) 
         logging.info("Last sample is {}".format(last_sample))
@@ -306,15 +307,15 @@ class HrrrForecastGEFSDataset(DownscalingDataset):
         x = x.astype(np.float32)
         kept_gefs_channels = self.means_gefs_surface.shape[0]
         if (len(x.shape)==3) and self.normalize:           
-            x[:kept_gefs_channels] *= self.stds_gefs_surface
-            x[:kept_gefs_channels] += self.means_gefs_surface
-            x[kept_gefs_channels:] *= self.stds_gefs_isobaric
-            x[kept_gefs_channels:] += self.means_gefs_isobaric
+            x[:kept_gefs_channels] *= self.means_gefs_surface
+            x[:kept_gefs_channels] += self.stds_gefs_surface
+            x[kept_gefs_channels:] *= self.means_gefs_isobaric
+            x[kept_gefs_channels:] += self.stds_gefs_isobaric
         elif (len(x.shape)==4) and self.normalize:
-            x[:,:kept_gefs_channels] *= self.stds_gefs_surface[None]
-            x[:,:kept_gefs_channels] += self.means_gefs_surface[None]
-            x[:,kept_gefs_channels:] *= self.stds_gefs_isobaric[None]
-            x[:,kept_gefs_channels:] += self.means_gefs_isobaric[None]
+            x[:,:kept_gefs_channels] *= self.means_gefs_surface[None]
+            x[:,:kept_gefs_channels] += self.stds_gefs_surface[None]
+            x[:,kept_gefs_channels:] *= self.means_gefs_isobaric[None]
+            x[:,kept_gefs_channels:] += self.stds_gefs_isobaric[None]
         return x
 
     def _get_gefs_surface(self, ts, lat, lon):
@@ -374,7 +375,8 @@ class HrrrForecastGEFSDataset(DownscalingDataset):
         if (len(hrrr_field.shape) == 4):
             hrrr_field = hrrr_field[0]
         hrrr_field = self.normalize_output(hrrr_field)
-        return hrrr_field
+        hrrr_non_precip = 1 - np.bitwise_or.reduce(hrrr_field[4:, ], axis=0)
+        return np.concatenate((hrrr_field, hrrr_non_precip),axis=0)
 
     def image_shape(self) -> Tuple[int, int]:
         """Get the (height, width) of the data (same for input and output)."""

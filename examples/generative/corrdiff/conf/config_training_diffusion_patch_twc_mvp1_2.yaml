@@ -17,7 +17,7 @@
 hydra:
   job:
     chdir: true
-    name: diffusion_patch_twc_mvp1_test7_mse
+    name: diffusion_patch_twc_mvp1_2_mse2
   run:
     dir: /lustre/fsw/coreai_climate_earth2/corrdiff/training_output/${hydra:job.name}
 
@@ -28,12 +28,12 @@ defaults:
   - dataset/twc_mvp1
 
   # Model
-  - model/corrdiff_patched_diffusion
+  - model/corrdiff_patched_diffusion_2
   #- model/corrdiff_diffusion
   #- model/corrdiff_patched_diffusion
 
   # Training
-  - training/corrdiff_patched_diffusion
+  - training/corrdiff_patched_diffusion_2
   #- training/corrdiff_diffusion
   #- training/corrdiff_patched_diffusion
 

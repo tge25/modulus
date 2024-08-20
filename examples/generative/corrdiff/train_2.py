@@ -24,7 +24,7 @@ from modulus import Module
 from modulus.models.diffusion import UNet, EDMPrecondSRV2
 from modulus.distributed import DistributedManager
 from modulus.launch.logging import PythonLogger, RankZeroLoggingWrapper
-from modulus.metrics.diffusion import RegressionLoss, ResLoss
+from modulus.metrics.diffusion import RegressionLoss, ResLoss, RegressionLossEntropy, ResLossEntropy, ResLoss5Types
 from modulus.launch.logging import PythonLogger, RankZeroLoggingWrapper
 from modulus.launch.utils import load_checkpoint, save_checkpoint
 from datasets.dataset import init_train_valid_datasets_from_config
@@ -45,7 +45,7 @@ def main(cfg: DictConfig) -> None:
     # Initialize distributed environment for training
     DistributedManager.initialize()
     dist = DistributedManager()
-
+    torch.autograd.set_detect_anomaly(True)
     # Initialize loggers
     if dist.rank == 0:
         writer = SummaryWriter(log_dir="tensorboard")
@@ -93,7 +93,7 @@ def main(cfg: DictConfig) -> None:
     img_in_channels = dataset_channels
     reg_img_in_channels = dataset_channels
     img_shape = dataset.image_shape()
-    img_out_channels = len(dataset.output_channels())
+    img_out_channels = len(dataset.output_channels()) + 1
     if cfg.model.hr_mean_conditioning:
         img_in_channels += img_out_channels
 
@@ -117,9 +117,9 @@ def main(cfg: DictConfig) -> None:
         img_in_channels += dataset_channels
 
     # Instantiate the model and move to device.
-        
     if cfg.model.name == "regression":
         additional_model_args = {
+            "model_type": "SongUNetPosEmbdsoftmax",
             "img_out_channels": img_out_channels,
             "img_resolution": list(img_shape),
             "use_fp16": fp16,
@@ -135,15 +135,6 @@ def main(cfg: DictConfig) -> None:
             "lead_time_channels": cfg.model.lead_time_channels,
             "checkpoint_level": cfg.training.perf.songunet_checkpoint_level,
         }
-
-    additional_regression_args = {
-        "img_out_channels": img_out_channels,
-        "img_resolution": list(img_shape),
-        "use_fp16": fp16,
-        "lead_time_channels": cfg.model.lead_time_channels,
-        "checkpoint_level": cfg.training.perf.songunet_checkpoint_level,
-    }
-
     if cfg.model.name == "regression":
         model = UNet(
             img_channels=4,
@@ -160,15 +151,7 @@ def main(cfg: DictConfig) -> None:
             img_in_channels=img_in_channels + 4 + cfg.model.lead_time_channels,
             **additional_model_args,
         )
-    elif cfg.model.name == "patched_diffusion":
-        regression_net = UNet(
-            img_channels=4,
-            N_grid_channels=4,
-            embedding_type="zero",
-            img_in_channels=reg_img_in_channels + 8,
-            **additional_regression_args,
-        )
-                
+    elif cfg.model.name == "patched_diffusion":     
         model = EDMPrecondSRV2(
             img_channels=4,
             gridtype="learnable",
@@ -206,7 +189,7 @@ def main(cfg: DictConfig) -> None:
     # Instantiate the loss function
     patch_num = getattr(cfg.training.hp, "patch_num", 1)
     if cfg.model.name in ("diffusion", "patched_diffusion"):
-        loss_fn = ResLoss(
+        loss_fn = ResLoss5Types(
             regression_net=regression_net,
             img_shape_x=img_shape[1],
             img_shape_y=img_shape[0],
@@ -217,7 +200,7 @@ def main(cfg: DictConfig) -> None:
             hr_mean_conditioning=cfg.model.hr_mean_conditioning,
         )
     elif cfg.model.name == "regression":
-        loss_fn = RegressionLoss()
+        loss_fn = RegressionLossEntropy()
 
     # Instantiate the optimizer
     optimizer = torch.optim.Adam(
@@ -245,6 +228,7 @@ def main(cfg: DictConfig) -> None:
     #                            MAIN TRAINING LOOP                            #
     ############################################################################
     conv2 = None
+    lt_embd2 = None
     logger0.info(f"Training for {cfg.training.hp.training_duration} images...")
     cur_tick = 0
     tick_start_nimg = cur_nimg
@@ -289,9 +273,9 @@ def main(cfg: DictConfig) -> None:
 
         # Update weights.
         for g in optimizer.param_groups:
-            lr_rampup = 100000  # ramp up the learning rate within 1M images
+            lr_rampup = 5e5  # ramp up the learning rate within 1M images
             g["lr"] = cfg.training.hp.lr * min(cur_nimg / lr_rampup, 1)
-            g["lr"] *= cfg.training.hp.lr_decay ** ((cur_nimg - lr_rampup) // 1e6)
+            g["lr"] *= cfg.training.hp.lr_decay ** max((cur_nimg - lr_rampup) // 1e6, 0)
             current_lr = g["lr"]
             if dist.rank == 0:
                 writer.add_scalar("learning_rate", current_lr, cur_nimg)
@@ -363,21 +347,30 @@ def main(cfg: DictConfig) -> None:
         tick_end_time = time.time()
         if dist.rank == 0:
             for name, para in model.named_parameters():
+                if "lt_embd" in name:
+                    lt_embd = para.detach().clone()
+            for name, para in model.named_parameters():
                 if "enc." in name:
                     conv = para.detach().clone()
                     break
             if conv2 is not None:
-                diff = torch.mean(torch.abs(conv2-conv))
+                diff_conv = torch.mean(torch.abs(conv2-conv))
             else:
-                diff = 0
+                diff_conv = 0
+            if lt_embd2 is not None:
+                diff_lt_embd = torch.mean(torch.abs(lt_embd2-lt_embd))
+            else:
+                diff_lt_embd = 0
             conv2 = conv.clone()
+            lt_embd2 = lt_embd.clone()
             fields = []
             fields += [f"tick {cur_tick:<5d}"]
             fields += [f"samples {(cur_nimg):<9.1f}"]
             fields += [f"training_loss {average_loss:<1.5e}"]
             fields += [f"validation_loss {average_valid_loss:<1.5e}"]
             fields += [f"learning_rate {current_lr:<1.5e}"]
-            fields += [f"diff {diff:<1.5e}"]
+            fields += [f"diff conv {diff_conv:<1.5e}"]
+            fields += [f"diff lead time embed {diff_lt_embd:<1.5e}"]
             fields += [f"total_sec {(tick_end_time - start_time):<7.1f}"]
             fields += [f"sec_per_tick {(tick_end_time - tick_start_time):<7.1f}"]
             fields += [

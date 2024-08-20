@@ -20,11 +20,12 @@ hydra:
 
 
 ## Main options
-res_ckpt_filename: "/lustre/fsw/coreai_climate_earth2/corrdiff/training_output/diffusion_patch_twc_mvp1_test7/checkpoints/EDMPrecondSRV2.0.2690560.mdlus"   
+model_type: v1
+res_ckpt_filename: "/lustre/fsw/coreai_climate_earth2/corrdiff/training_output/diffusion_patch_twc_mvp1_test7_mse/checkpoints/EDMPrecondSRV2.0.4070400.mdlus"   
   # Checkpoint filename for the generative model  
-reg_ckpt_filename: "/lustre/fsw/coreai_climate_earth2/corrdiff/training_output/regression_twc_mvp1/checkpoints/UNet.0.880640.mdlus"
+reg_ckpt_filename: "/lustre/fsw/coreai_climate_earth2/corrdiff/training_output/regression_twc_mvp1_test7/checkpoints/UNet.0.2176000.mdlus"
   # Checkpoint filename for the mean predictor model
-image_outdir: "/lustre/fsw/coreai_climate_earth2/corrdiff/inferences/twc_mvp_full2"
+image_outdir: "/lustre/fsw/coreai_climate_earth2/corrdiff/inferences/twc_mvp_correcteddiffusion_mse_full2"
   # Where to save the output images
 seeds: "0-7"
   # Random seeds used for generation

@@ -410,8 +410,506 @@ class RegressionLoss:
         input = torch.zeros_like(y, device=img_clean.device)
         D_yn = net(input, y_lr, sigma, labels, lead_time_label=lead_time_label, augment_labels=augment_labels)
         loss = weight * ((D_yn - y) ** 2)
+        loss1 = weight * ((D_yn[:,:4] - y[:,:4]) ** 2)
+        loss2 = weight * ((D_yn[:,4:] - y[:,4:]) ** 2)
+        return loss, loss1, loss2
 
-        return loss
+
+class RegressionLossEntropy:
+    """
+    Regression loss function for the U-Net for deterministic predictions.
+
+    Parameters
+    ----------
+    P_mean: float, optional
+        Mean value for `sigma` computation, by default -1.2.
+    P_std: float, optional:
+        Standard deviation for `sigma` computation, by default 1.2.
+    sigma_data: float, optional
+        Standard deviation for data, by default 0.5.
+
+    Note
+    ----
+    Reference: Mardani, M., Brenowitz, N., Cohen, Y., Pathak, J., Chen, C.Y.,
+    Liu, C.C.,Vahdat, A., Kashinath, K., Kautz, J. and Pritchard, M., 2023.
+    Generative Residual Diffusion Modeling for Km-scale Atmospheric Downscaling.
+    arXiv preprint arXiv:2309.15214.
+    """
+
+    def __init__(
+        self, P_mean: float = -1.2, P_std: float = 1.2, sigma_data: float = 0.5
+    ):
+        self.P_mean = P_mean
+        self.P_std = P_std
+        self.sigma_data = sigma_data
+        self.entropy = torch.nn.CrossEntropyLoss(reduction='none')
+
+    def __call__(self, net, img_clean, img_lr, lead_time_label=None, labels=None, augment_pipe=None):
+        """
+        Calculate and return the loss for the U-Net for deterministic predictions.
+
+        Parameters:
+        ----------
+        net: torch.nn.Module
+            The neural network model that will make predictions.
+
+        img_clean: torch.Tensor
+            Input images (high resolution) to the neural network.
+
+        img_lr: torch.Tensor
+            Input images (low resolution) to the neural network.
+
+        labels: torch.Tensor
+            Ground truth labels for the input images.
+
+        augment_pipe: callable, optional
+            An optional data augmentation function that takes images as input and
+            returns augmented images. If not provided, no data augmentation is applied.
+
+        Returns:
+        -------
+        torch.Tensor
+            A tensor representing the loss calculated based on the network's
+            predictions.
+        """
+        precip = torch.sum(img_clean[:,4:, ], axis=1, keepdim = True)
+        hrrr_non_precip = ((precip == 0).float())
+        img_clean = torch.cat((img_clean, hrrr_non_precip), dim=1)
+        img_clean[:, 4:] = img_clean[:, 4:]/torch.sum(img_clean[:,4:, ], axis=1, keepdim = True)
+        rnd_normal = torch.randn([img_clean.shape[0], 1, 1, 1], device=img_clean.device)
+        sigma = (rnd_normal * self.P_std + self.P_mean).exp()
+        weight = (
+            1.0  # (sigma ** 2 + self.sigma_data ** 2) / (sigma * self.sigma_data) ** 2
+        )
+
+        img_tot = torch.cat((img_clean, img_lr), dim=1)
+        y_tot, augment_labels = (
+            augment_pipe(img_tot) if augment_pipe is not None else (img_tot, None)
+        )
+        y = y_tot[:, : img_clean.shape[1], :, :]
+        y_lr = y_tot[:, img_clean.shape[1] :, :, :]
+
+        input = torch.zeros_like(y, device=img_clean.device)
+        D_yn = net(input, y_lr, sigma, labels, lead_time_label=lead_time_label, augment_labels=augment_labels)
+        loss1 = weight * ((D_yn[:,:4] - y[:,:4]) ** 2)
+        loss2 = 3 * weight * self.entropy(D_yn[:,4:], y[:,4:])[:, None]
+        loss = torch.cat((loss1,loss2), dim=1)
+        return loss, loss1, loss2
+
+
+class ResLossEntropy:
+    """
+    Mixture loss function for denoising score matching.
+
+    Parameters
+    ----------
+    P_mean: float, optional
+        Mean value for `sigma` computation, by default -1.2.
+    P_std: float, optional:
+        Standard deviation for `sigma` computation, by default 1.2.
+    sigma_data: float, optional
+        Standard deviation for data, by default 0.5.
+
+    Note
+    ----
+    Reference: Mardani, M., Brenowitz, N., Cohen, Y., Pathak, J., Chen, C.Y.,
+    Liu, C.C.,Vahdat, A., Kashinath, K., Kautz, J. and Pritchard, M., 2023.
+    Generative Residual Diffusion Modeling for Km-scale Atmospheric Downscaling.
+    arXiv preprint arXiv:2309.15214.
+    """
+
+    def __init__(
+        self,
+        regression_net,
+        img_shape_x,
+        img_shape_y,
+        patch_shape_x,
+        patch_shape_y,
+        patch_num,
+        P_mean: float = 0.0,
+        P_std: float = 1.2,
+        sigma_data: float = 0.5,
+        hr_mean_conditioning: bool = False,
+    ):
+        self.unet = regression_net
+        self.P_mean = P_mean
+        self.P_std = P_std
+        self.sigma_data = sigma_data
+        self.img_shape_x = img_shape_x
+        self.img_shape_y = img_shape_y
+        self.patch_shape_x = patch_shape_x
+        self.patch_shape_y = patch_shape_y
+        self.patch_num = patch_num
+        self.hr_mean_conditioning = hr_mean_conditioning
+        self.entropy = torch.nn.CrossEntropyLoss(reduction='none')
+
+    def __call__(self, net, img_clean, img_lr, lead_time_label=None, labels=None, augment_pipe=None):
+        """
+        Calculate and return the loss for denoising score matching.
+
+        Parameters:
+        ----------
+        net: torch.nn.Module
+            The neural network model that will make predictions.
+
+        img_clean: torch.Tensor
+            Input images (high resolution) to the neural network.
+
+        img_lr: torch.Tensor
+            Input images (low resolution) to the neural network.
+
+        labels: torch.Tensor
+            Ground truth labels for the input images.
+
+        augment_pipe: callable, optional
+            An optional data augmentation function that takes images as input and
+            returns augmented images. If not provided, no data augmentation is applied.
+
+        Returns:
+        -------
+        torch.Tensor
+            A tensor representing the loss calculated based on the network's
+            predictions.
+        """
+        precip = torch.sum(img_clean[:,4:, ], axis=1, keepdim = True)
+        hrrr_non_precip = ((precip == 0).float())
+        img_clean = torch.cat((img_clean, hrrr_non_precip), dim=1)
+        img_clean[:, 4:] = img_clean[:, 4:]/torch.sum(img_clean[:,4:, ], axis=1, keepdim = True)
+        rnd_normal = torch.randn([img_clean.shape[0], 1, 1, 1], device=img_clean.device)
+        sigma = (rnd_normal * self.P_std + self.P_mean).exp()
+        weight = (sigma**2 + self.sigma_data**2) / (sigma * self.sigma_data) ** 2
+
+        # augment for conditional generaiton
+        img_tot = torch.cat((img_clean, img_lr), dim=1)
+        y_tot, augment_labels = (
+            augment_pipe(img_tot) if augment_pipe is not None else (img_tot, None)
+        )
+        y = y_tot[:, : img_clean.shape[1], :, :]
+        y_lr = y_tot[:, img_clean.shape[1] :, :, :]
+        y_lr_res = y_lr
+
+        # global index
+        b = y.shape[0]
+        Nx = torch.arange(self.img_shape_x).int()
+        Ny = torch.arange(self.img_shape_y).int()
+        grid = torch.stack(torch.meshgrid(Ny, Nx, indexing="ij"), dim=0)[
+            None,
+        ].expand(b, -1, -1, -1)
+
+        # form residual
+        y_mean = self.unet(
+            torch.zeros_like(y, device=img_clean.device),
+            y_lr_res,
+            sigma,
+            labels,
+            lead_time_label=lead_time_label,
+            augment_labels=augment_labels,
+        )
+
+        y[:,:4] = y[:,:4] - y_mean[:,:4]
+
+        if self.hr_mean_conditioning:
+            y_lr = torch.cat((y_mean, y_lr), dim=1).contiguous()
+        global_index = None
+
+        # patchified training
+        # conditioning: cat(y_mean, y_lr, input_interp, pos_embd), 4+12+100+4
+        if (
+            self.img_shape_x != self.patch_shape_x
+            or self.img_shape_y != self.patch_shape_y
+        ):  
+            
+            c_in = y_lr.shape[1]
+            c_out = y.shape[1]
+            rnd_normal = torch.randn(
+                [img_clean.shape[0] * self.patch_num, 1, 1, 1], device=img_clean.device
+            )
+            sigma = (rnd_normal * self.P_std + self.P_mean).exp()
+            weight = (sigma**2 + self.sigma_data**2) / (
+                sigma * self.sigma_data
+            ) ** 2
+
+            # global interpolation
+            input_interp = torch.nn.functional.interpolate(
+                img_lr,
+                (self.patch_shape_y, self.patch_shape_x),
+                mode="bilinear",
+            )
+
+            # patch generation from a single sample (not from random samples due to memory consumption of regression)
+            y_new = torch.zeros(
+                b * self.patch_num,
+                c_out,
+                self.patch_shape_y,
+                self.patch_shape_x,
+                device=img_clean.device,
+            )
+            y_lr_new = torch.zeros(
+                b * self.patch_num,
+                c_in + input_interp.shape[1],
+                self.patch_shape_y,
+                self.patch_shape_x,
+                device=img_clean.device,
+            )
+            global_index = torch.zeros(
+                b * self.patch_num,
+                2,
+                self.patch_shape_y,
+                self.patch_shape_x,
+                dtype=torch.int,
+                device=img_clean.device,
+            )
+            for i in range(self.patch_num):
+                rnd_x = random.randint(0, self.img_shape_x - self.patch_shape_x)
+                rnd_y = random.randint(0, self.img_shape_y - self.patch_shape_y)
+                y_new[b * i : b * (i + 1),] = y[
+                    :,
+                    :,
+                    rnd_y : rnd_y + self.patch_shape_y,
+                    rnd_x : rnd_x + self.patch_shape_x,
+                ]
+                global_index[b * i : b * (i + 1),] = grid[
+                    :,
+                    :,
+                    rnd_y : rnd_y + self.patch_shape_y,
+                    rnd_x : rnd_x + self.patch_shape_x,
+                ]
+                y_lr_new[b * i : b * (i + 1),] = torch.cat(
+                    (
+                        y_lr[
+                            :,
+                            :,
+                            rnd_y : rnd_y + self.patch_shape_y,
+                            rnd_x : rnd_x + self.patch_shape_x,
+                        ],
+                        input_interp,
+                    ),
+                    1,
+                )
+            y = y_new
+            y_lr = y_lr_new
+        latent = y + torch.randn_like(y) * sigma
+
+        D_yn = net(
+            latent,
+            y_lr,
+            sigma,
+            labels,
+            global_index=global_index,
+            lead_time_label=lead_time_label, 
+            augment_labels=augment_labels,
+        )
+        loss1 = weight * ((D_yn[:,:4] - y[:,:4]) ** 2)
+        loss2 = weight * self.entropy(D_yn[:,4:], y[:,4:])[:, None]
+        loss = torch.cat((loss1,loss2), dim=1)
+        return loss, loss1, loss2
+
+
+class ResLoss5Types:
+    """
+    Mixture loss function for denoising score matching.
+
+    Parameters
+    ----------
+    P_mean: float, optional
+        Mean value for `sigma` computation, by default -1.2.
+    P_std: float, optional:
+        Standard deviation for `sigma` computation, by default 1.2.
+    sigma_data: float, optional
+        Standard deviation for data, by default 0.5.
+
+    Note
+    ----
+    Reference: Mardani, M., Brenowitz, N., Cohen, Y., Pathak, J., Chen, C.Y.,
+    Liu, C.C.,Vahdat, A., Kashinath, K., Kautz, J. and Pritchard, M., 2023.
+    Generative Residual Diffusion Modeling for Km-scale Atmospheric Downscaling.
+    arXiv preprint arXiv:2309.15214.
+    """
+
+    def __init__(
+        self,
+        regression_net,
+        img_shape_x,
+        img_shape_y,
+        patch_shape_x,
+        patch_shape_y,
+        patch_num,
+        P_mean: float = 0.0,
+        P_std: float = 1.2,
+        sigma_data: float = 0.5,
+        hr_mean_conditioning: bool = False,
+    ):
+        self.unet = regression_net
+        self.P_mean = P_mean
+        self.P_std = P_std
+        self.sigma_data = sigma_data
+        self.img_shape_x = img_shape_x
+        self.img_shape_y = img_shape_y
+        self.patch_shape_x = patch_shape_x
+        self.patch_shape_y = patch_shape_y
+        self.patch_num = patch_num
+        self.hr_mean_conditioning = hr_mean_conditioning
+
+    def __call__(self, net, img_clean, img_lr, lead_time_label=None, labels=None, augment_pipe=None):
+        """
+        Calculate and return the loss for denoising score matching.
+
+        Parameters:
+        ----------
+        net: torch.nn.Module
+            The neural network model that will make predictions.
+
+        img_clean: torch.Tensor
+            Input images (high resolution) to the neural network.
+
+        img_lr: torch.Tensor
+            Input images (low resolution) to the neural network.
+
+        labels: torch.Tensor
+            Ground truth labels for the input images.
+
+        augment_pipe: callable, optional
+            An optional data augmentation function that takes images as input and
+            returns augmented images. If not provided, no data augmentation is applied.
+
+        Returns:
+        -------
+        torch.Tensor
+            A tensor representing the loss calculated based on the network's
+            predictions.
+        """
+        precip = torch.sum(img_clean[:,4:, ], axis=1, keepdim = True)
+        hrrr_non_precip = ((precip == 0).float())
+        img_clean = torch.cat((img_clean, hrrr_non_precip), dim=1)
+        img_clean[:, 4:] = img_clean[:, 4:]/torch.sum(img_clean[:,4:, ], axis=1, keepdim = True)
+        rnd_normal = torch.randn([img_clean.shape[0], 1, 1, 1], device=img_clean.device)
+        sigma = (rnd_normal * self.P_std + self.P_mean).exp()
+        weight = (sigma**2 + self.sigma_data**2) / (sigma * self.sigma_data) ** 2
+
+        # augment for conditional generaiton
+        img_tot = torch.cat((img_clean, img_lr), dim=1)
+        y_tot, augment_labels = (
+            augment_pipe(img_tot) if augment_pipe is not None else (img_tot, None)
+        )
+        y = y_tot[:, : img_clean.shape[1], :, :]
+        y_lr = y_tot[:, img_clean.shape[1] :, :, :]
+        y_lr_res = y_lr
+
+        # global index
+        b = y.shape[0]
+        Nx = torch.arange(self.img_shape_x).int()
+        Ny = torch.arange(self.img_shape_y).int()
+        grid = torch.stack(torch.meshgrid(Ny, Nx, indexing="ij"), dim=0)[
+            None,
+        ].expand(b, -1, -1, -1)
+
+        # form residual
+        y_mean = self.unet(
+            torch.zeros_like(y, device=img_clean.device),
+            y_lr_res,
+            sigma,
+            labels,
+            lead_time_label=lead_time_label,
+            augment_labels=augment_labels,
+        )
+
+        y = y - y_mean
+
+        if self.hr_mean_conditioning:
+            y_lr = torch.cat((y_mean, y_lr), dim=1).contiguous()
+        global_index = None
+
+        # patchified training
+        # conditioning: cat(y_mean, y_lr, input_interp, pos_embd), 4+12+100+4
+        if (
+            self.img_shape_x != self.patch_shape_x
+            or self.img_shape_y != self.patch_shape_y
+        ):  
+            
+            c_in = y_lr.shape[1]
+            c_out = y.shape[1]
+            rnd_normal = torch.randn(
+                [img_clean.shape[0] * self.patch_num, 1, 1, 1], device=img_clean.device
+            )
+            sigma = (rnd_normal * self.P_std + self.P_mean).exp()
+            weight = (sigma**2 + self.sigma_data**2) / (
+                sigma * self.sigma_data
+            ) ** 2
+
+            # global interpolation
+            input_interp = torch.nn.functional.interpolate(
+                img_lr,
+                (self.patch_shape_y, self.patch_shape_x),
+                mode="bilinear",
+            )
+
+            # patch generation from a single sample (not from random samples due to memory consumption of regression)
+            y_new = torch.zeros(
+                b * self.patch_num,
+                c_out,
+                self.patch_shape_y,
+                self.patch_shape_x,
+                device=img_clean.device,
+            )
+            y_lr_new = torch.zeros(
+                b * self.patch_num,
+                c_in + input_interp.shape[1],
+                self.patch_shape_y,
+                self.patch_shape_x,
+                device=img_clean.device,
+            )
+            global_index = torch.zeros(
+                b * self.patch_num,
+                2,
+                self.patch_shape_y,
+                self.patch_shape_x,
+                dtype=torch.int,
+                device=img_clean.device,
+            )
+            for i in range(self.patch_num):
+                rnd_x = random.randint(0, self.img_shape_x - self.patch_shape_x)
+                rnd_y = random.randint(0, self.img_shape_y - self.patch_shape_y)
+                y_new[b * i : b * (i + 1),] = y[
+                    :,
+                    :,
+                    rnd_y : rnd_y + self.patch_shape_y,
+                    rnd_x : rnd_x + self.patch_shape_x,
+                ]
+                global_index[b * i : b * (i + 1),] = grid[
+                    :,
+                    :,
+                    rnd_y : rnd_y + self.patch_shape_y,
+                    rnd_x : rnd_x + self.patch_shape_x,
+                ]
+                y_lr_new[b * i : b * (i + 1),] = torch.cat(
+                    (
+                        y_lr[
+                            :,
+                            :,
+                            rnd_y : rnd_y + self.patch_shape_y,
+                            rnd_x : rnd_x + self.patch_shape_x,
+                        ],
+                        input_interp,
+                    ),
+                    1,
+                )
+            y = y_new
+            y_lr = y_lr_new
+        latent = y + torch.randn_like(y) * sigma
+
+        D_yn = net(
+            latent,
+            y_lr,
+            sigma,
+            labels,
+            global_index=global_index,
+            lead_time_label=lead_time_label, 
+            augment_labels=augment_labels,
+        )
+        loss1 = weight * ((D_yn[:,:4] - y[:,:4]) ** 2)
+        loss2 = 3*weight * ((D_yn[:,4:] - y[:,4:]) ** 2)
+        loss = torch.cat((loss1,loss2), dim=1)
+        return loss, loss1, loss2
 
 
 class ResLoss:
@@ -612,9 +1110,10 @@ class ResLoss:
             lead_time_label=lead_time_label, 
             augment_labels=augment_labels,
         )
-        loss = weight * ((D_yn - y) ** 2)
-
-        return loss
+        loss1 = weight * ((D_yn[:,:4] - y[:,:4]) ** 2)
+        loss2 = 3*weight * ((D_yn[:,4:] - y[:,4:]) ** 2)
+        loss = torch.cat((loss1,loss2), dim=1)
+        return loss, loss1, loss2
 
 
 class VELoss_dfsr:

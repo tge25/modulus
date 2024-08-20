@@ -25,12 +25,11 @@ import netCDF4 as nc
 import numpy as np
 import pylab as plt
 import xarray
+import os
 from matplotlib.colors import TwoSlopeNorm
-'''
-time = ["2024011212f15", "2024011400f00", "2024011400f21", "2024030518f03",
-        "2024051506f24", "2024061212f12", "2024070400f00", "2024070400f18",
-        "2024070800f00", "2024070800f12", "2024071006f00", "2024030518f03",]
-'''
+
+temp_image_path = "temp_images"
+os.makedirs(temp_image_path, exist_ok=True)
 
 time = ["2024011212f00", "2024011212f03", "2024011212f06", "2024011212f09",
         "2024011212f12", "2024011212f15", "2024011212f18", "2024011212f21",
@@ -600,18 +599,16 @@ for i in range(len(time)):
     ax.coastlines(linewidth=0.5, color="white")
     gl.left_labels = False
     '''
-
     plt.suptitle(f"{time[i][:4]}-{time[i][4:6]}-{time[i][6:8]} {time[i][8:10]}:00 | lead time: {time[i][11:]} hours", fontsize=35)
     plt.tight_layout()
-    plt.savefig("./output_movie/reflectivity_movie%d.png"%i)
+    plt.savefig(f"./{temp_image_path}/reflectivity_movie%d.png"%i)
     plt.close()
 
 import imageio 
 import os
-writer = imageio.get_writer('twc_mvp1_crossentropy_moive2.mp4', fps = 3)
-dirFiles = os.listdir('./output_movie/') #list of directory files
+writer = imageio.get_writer('twc_mvp1_moive.mp4', fps = 3)
+dirFiles = os.listdir(f'./{temp_image_path}/') #list of directory files
 dirFiles.sort(key=lambda f: int(''.join(filter(str.isdigit, f))))
 for im in dirFiles:
-     writer.append_data(imageio.imread('./output_movie/'+im))
+     writer.append_data(imageio.imread(f'./{temp_image_path}/'+im))
 writer.close()
-print("saved to twc_mvp1_moive2.mp4")

@@ -21,7 +21,7 @@ hydra:
 
 ## Main options
 model_type: v3
-res_ckpt_filename: "/lustre/fsw/coreai_climate_earth2/corrdiff/training_output/diffusion_patch_twc_mvp1_2_mse2/checkpoints/EDMPrecondSRV2.0.1807360.mdlus"   
+res_ckpt_filename: "/lustre/fsw/coreai_climate_earth2/corrdiff/training_output/diffusion_patch_twc_mvp1_2_mse2/checkpoints/EDMPrecondSRV2.0.5821440.mdlus"   
   # Checkpoint filename for the generative model  
 reg_ckpt_filename: "/lustre/fsw/coreai_climate_earth2/corrdiff/training_output/regression_twc_mvp1_2_correctEntropy/checkpoints/UNet.0.1960960.mdlus"
   # Checkpoint filename for the mean predictor model

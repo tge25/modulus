@@ -24,7 +24,6 @@ import xarray as xr
 from modulus import Module
 from modulus.distributed import DistributedManager
 from modulus.utils.generative import (
-    ablation_sampler,
     StackedRandomGenerator,
 )
 
@@ -42,14 +41,17 @@ def _mean_predictor_inference(
     mean_predictor_model: Module,
     dist: DistributedManager, # (TODO: Maybe refactor to remove this?)
     output_channels: int = 3,
-    rank_seeds: list = [0],
+    seeds: list = [0],
 ):
     """ Run inference on the mean predictor model.
+
+    input_tensor: torch.Tensor
+        Input tensor to run inference on. shape: (B, C, H, W)
     """
 
     # Loop over seeds in batch
     output_tensor = []
-    for seed in rank_seeds:
+    for seed in seeds:
 
         # Generate latents (TODO: V3 Specific)
         latents = torch.zeros(
@@ -78,20 +80,35 @@ def _mean_predictor_inference(
 def _generative_model_inference(
     input_tensor: torch.Tensor,
     lead_time: int,
+    mean_hr: torch.Tensor,
     generative_model: Module,
     dist: DistributedManager, # (TODO: Maybe refactor to remove this?)
     output_channels: int = 3,
-    rank_seeds: list = [0],
+    seeds: list = [0],
     sampling_kwargs: dict = {},
-    sampling_method: str = "stochastic",
 ):
     """Generate random images using the techniques described in the paper
     "Elucidating the Design Space of Diffusion-Based Generative Models".
     """
 
+    # Check if sampling kwargs has required keys
+    required_keys = {
+        "img_shape",
+        "patch_shape",
+        "overlap_pix",
+        "boundary_pix",
+        "num_steps",
+        "rho",
+        "S_churn",
+        "S_min",
+        "S_max",
+        "S_noise",
+    }
+    assert required_keys.issubset(sampling_kwargs.keys()), f"Missing keys in sampling_kwargs: {required_keys - set(sampling_kwargs.keys())}"
+
     # Loop over seeds in batch
     output_tensor = []
-    for seed in rank_seeds:
+    for seed in seeds:
 
         # Instantiate random generator
         rnd = StackedRandomGenerator(
@@ -110,30 +127,16 @@ def _generative_model_inference(
             device=dist.device,
         ).to(memory_format=torch.channels_last)
 
-        # Sampling method
-        sampler_kwargs = {
-            key: value for key, value in sampling_kwargs.items() if value is not None
-        }
-        if sampling_method == "deterministic":
-            sampler_fn = ablation_sampler
-        elif sampling_method == "stochastic":
-            sampler_fn = edm_sampler
-        else:
-            raise ValueError(
-                f"Unknown sampling method {sampling_method}. Should be either 'stochastic' or 'deterministic'."
-            )
-
         # Run inference
         with torch.inference_mode():
-            #print(latents.dtype)
-            #print(input_tensor.dtype)
-            #print(sampler_kwargs["mean_hr"].dtype)
-            images = sampler_fn(
+            images = edm_sampler(
                 generative_model,
                 latents,
                 input_tensor,
                 class_labels=None,
                 randn_like=torch.randn_like,
+                mean_hr=mean_hr,
+                lead_time_label=lead_time,
                 **sampler_kwargs,
             )
         output_tensor.append(images)
@@ -148,7 +151,6 @@ def inference(
     generative_model: Module,
     mean_predictor_model: Module,
     seeds: list,
-    dist: DistributedManager,
     output_channels: int = 3,
     sampling_kwargs: dict = {},
 ):
@@ -158,9 +160,6 @@ def inference(
     # Memory format
     input_tensor = input_tensor.to(memory_format=torch.channels_last)
 
-    # Get rank seeds
-    rank_seeds = torch.as_tensor(seeds)[dist.rank :: dist.world_size]
-
     # Run inference on mean predictor
     output_mean = _mean_predictor_inference(
         input_tensor=input_tensor,
@@ -168,29 +167,23 @@ def inference(
         mean_predictor_model=mean_predictor_model,
         dist=dist,
         output_channels=output_channels,
-        rank_seeds=rank_seeds,
+        seeds=seeds,
     )
 
-    # TODO: Hacky
-    sampling_kwargs["mean_hr"] = output_mean
-    sampling_kwargs["lead_time_label"] = lead_time
-    #print(output_mean.shape)
+    # Run inference on generative model
+    output_gen = _generative_model_inference(
+        input_tensor=input_tensor,
+        lead_time=lead_time,
+        mean_hr=output_mean,
+        generative_model=generative_model,
+        dist=dist,
+        output_channels=output_channels,
+        seeds=seeds,
+        sampling_kwargs=sampling_kwargs,
+    )
 
-    ## Run inference on generative model TODO: Implement
-    #output_gen = _generative_model_inference(
-    #    input_tensor=input_tensor,
-    #    lead_time=lead_time,
-    #    generative_model=generative_model,
-    #    dist=dist,
-    #    output_channels=output_channels,
-    #    rank_seeds=rank_seeds,
-    #    sampling_kwargs=sampling_kwargs,
-    #)
-
-    ## Combine regression and residual images
-    #output = output_mean + output_gen
-    output = output_mean
-    print(output.shape)
+    # Combine regression and residual images
+    output = output_mean + output_gen
 
     # Return output
     return output
@@ -201,7 +194,6 @@ if __name__ == "__main__":
     output_channels = 8 # Maybe 9 for V3
     shape_x = 1056
     shape_y = 1792
-    img_shape = (shape_y, shape_x)
     sampler_kwargs = {
         "num_steps": 18,
         "patch_shape": 448,
@@ -225,6 +217,8 @@ if __name__ == "__main__":
     input_tensor = torch.zeros((1, 37, shape_x, shape_y)).to(dist.device)
     for i, var in enumerate(ds.data_vars):
         input_tensor[0, i] = torch.tensor(ds[var].values).to(dist.device)
+        import numpy as np
+        print(np.mean(ds[var].values))
     del ds
 
     # Load mean predictor model
@@ -253,5 +247,6 @@ if __name__ == "__main__":
         sampling_kwargs=sampler_kwargs
     )
     import matplotlib.pyplot as plt
-    plt.imshow(output_tensor[0, 0].cpu().numpy())
-    plt.show()
+    for i in range(output_tensor.shape[1]):
+        plt.imshow(output_tensor[0, i].cpu().numpy())
+        plt.savefig(f"output_{i}.png")

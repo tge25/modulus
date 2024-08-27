@@ -26,12 +26,12 @@ from modulus.utils.generative import (
     StackedRandomGenerator,
 )
 
-#try:
-#    from edmss import edm_sampler
-#except ImportError:
-#    raise ImportError(
-#        "Please get the edm_sampler by running: pip install git+https://github.com/mnabian/edmss.git"
-#    )
+try:
+    from edmss import edm_sampler
+except ImportError:
+    raise ImportError(
+        "Please get the edm_sampler by running: pip install git+https://github.com/mnabian/edmss.git"
+    )
  
 
 def _mean_predictor_inference(
@@ -40,10 +40,6 @@ def _mean_predictor_inference(
     mean_predictor_model: Module,
     dist: DistributedManager, # (TODO: Maybe refactor to remove this?)
     output_channels: int = 3,
-    sigma_min: float = 0.0,
-    sigma_max: float = 0.0,
-    num_steps: int = 2,
-    rho: int = 7,
     rank_seeds: list = [0],
 ):
     """ Run inference on the mean predictor model.
@@ -58,35 +54,18 @@ def _mean_predictor_inference(
             (
                 1,
                 output_channels + 1, # TODO: Hack for V3, remove +1
-                input_tensor.shape[1],
                 input_tensor.shape[2],
+                input_tensor.shape[3],
             ),
             device=dist.device,
         ).to(memory_format=torch.channels_last)
 
-        # Adjust noise levels based on what's supported by the network. (TODO: Probably not needed)
-        sigma_min = max(sigma_min, mean_predictor_model.sigma_min)
-        sigma_max = min(sigma_max, mean_predictor_model.sigma_max)
-
-        # Time step discretization.
-        step_indices = torch.arange(num_steps, dtype=torch.float64, device=latents.device)
-        t_steps = (
-            sigma_max ** (1 / rho)
-            + step_indices
-            / (num_steps - 1)
-            * (sigma_min ** (1 / rho) - sigma_max ** (1 / rho))
-        ) ** rho
-        t_steps = torch.cat(
-            [mean_predictor_model.round_sigma(t_steps), torch.zeros_like(t_steps[:1]).to(dist.device)]
-        )
-
         # Main sampling loop.
-        x_hat = latents.to(torch.float64) * t_steps[0] # TODO: Ask Tao, this will always be zero
         t_hat = torch.tensor(1.0).to(torch.float64).to(dist.device)
 
         # Run regression on just a single batch element and then repeat
         output_tensor.append(
-            mean_predictor_model(x_hat[0:1], input_tensor, t_hat, lead_time_label=lead_time).to(torch.float64)
+            mean_predictor_model(latents, input_tensor, t_hat, lead_time_label=lead_time).to(torch.float64)
         )
 
     # Return output tensor
@@ -96,96 +75,75 @@ def _mean_predictor_inference(
 def _generative_model_inference(
     input_tensor: torch.Tensor,
     lead_time: int,
-    mean_predictor_model: Module,
-    seeds: list,
+    generative_model: Module,
     dist: DistributedManager, # (TODO: Maybe refactor to remove this?)
+    output_channels: int = 3,
+    rank_seeds: list = [0],
+    sampling_kwargs: dict = {},
     sampling_method: str = "stochastic",
 ):
     """Generate random images using the techniques described in the paper
     "Elucidating the Design Space of Diffusion-Based Generative Models".
     """
-    pass
 
-    ## Get seeds for current rank
-    #rank_seeds = torch.as_tensor(seeds)[dist.rank :: dist.world_size]
+    # Loop over seeds in batch
+    output_tensor = []
+    for seed in rank_seeds:
 
-    ## Synchronize TODO: Remove this?
-    #if dist.world_size > 1:
-    #    torch.distributed.barrier()
+        # Instantiate random generator
+        rnd = StackedRandomGenerator(
+            dist.device,
+            [seed],
+        )
 
-    ## Loop over seeds in batch
-    #all_images = []
-    #for seed in rank_seeds:
+        # Generate latents (TODO: V3 Specific)
+        latents = rnd.randn(
+            [
+                1,
+                output_channels + 1, # TODO: Hack for V3, remove +1
+                input_tensor.shape[2],
+                input_tensor.shape[3],
+            ],
+            device=dist.device,
+        ).to(memory_format=torch.channels_last)
 
-    #    # Instantiate random generator
-    #    rnd = StackedRandomGenerator(
-    #        dist.device,
-    #        [seed],
-    #    )
+        class_labels = None
+        print(generative_model.label_dim)
+        if generative_model.label_dim: # TODO: have no idea what this is
+            class_labels = torch.eye(net.label_dim, device=dist.device)[
+                rnd.randint(net.label_dim, size=[seed_batch_size], device=device)
+            ]
 
-    #    # Generate latents (TODO: V3 Specific)
-    #    latents = rnd.randn(
-    #        [
-    #            1,
-    #            img_out_channels + 1, # TODO: Hack for V3, remove +1
-    #            input_tensor.shape[1],
-    #            input_tensor.shape[2],
-    #        ],
-    #        device=dist.device,
-    #    ).to(memory_format=torch.channels_last)
+        # Sampling method
+        sampler_kwargs = {
+            key: value for key, value in sampling_kwargs.items() if value is not None
+        }
+        if sampling_method == "deterministic":
+            sampler_fn = ablation_sampler
+        elif sampling_method == "stochastic":
+            sampler_fn = edm_sampler
+        else:
+            raise ValueError(
+                f"Unknown sampling method {sampling_method}. Should be either 'stochastic' or 'deterministic'."
+            )
 
-    #    class_labels = None
-    #    if net.label_dim: # TODO: have no idea what this is
-    #        class_labels = torch.eye(net.label_dim, device=dist.device)[
-    #            rnd.randint(net.label_dim, size=[seed_batch_size], device=device)
-    #        ]
+        # Run inference
+        with torch.inference_mode():
+            images = sampler_fn(
+                net,
+                latents,
+                img_lr,
+                class_labels,
+                randn_like=torch.randn_like,
+                **sampler_kwargs,
+            )
+        output_tensor.append(images)
 
-    #    # Generate latent images
-    #    latents = torch.zeros_like(latents, memory_format=torch.channels_last)
-
-    #    # Adjust noise levels based on what's supported by the network.
-    #    sigma_min = max(sigma_min, net.sigma_min)
-    #    sigma_max = min(sigma_max, net.sigma_max)
-
-    #    # Time step discretization.
-    #    step_indices = torch.arange(num_steps, dtype=torch.float64, device=latents.device)
-    #    t_steps = (
-    #        sigma_max ** (1 / rho)
-    #        + step_indices
-    #        / (num_steps - 1)
-    #        * (sigma_min ** (1 / rho) - sigma_max ** (1 / rho))
-    #    ) ** rho
-    #    t_steps = torch.cat(
-    #        [net.round_sigma(t_steps), torch.zeros_like(t_steps[:1])]
-    #    )  # t_N = 0
-
-    #    x_lr = img_lr
-
-    #    # Main sampling loop.
-    #    x_hat = latents.to(torch.float64) * t_steps[0]
-    #    t_hat = torch.tensor(1.0).to(torch.float64).cuda()
-
-    #    # Run regression on just a single batch element and then repeat
-    #    x_next = net(x_hat[0:1], x_lr, t_hat, class_labels, lead_time_label=kwargs["lead_time_label"]).to(torch.float64)
-
-    #    if x_hat.shape[0] > 1:
-    #        x_next = x_next.repeat([d if i == 0 else 1 for i, d in enumerate(x_hat.shape)])
-
-    #    return x_next
+    # Return output tensor
+    return torch.cat(output_tensor)
 
 
 
-    #    with torch.inference_mode():
-    #        images = sampler_fn(
-    #            net,
-    #            latents,
-    #            img_lr,
-    #            class_labels,
-    #            randn_like=torch.randn_like,
-    #            **sampler_kwargs,
-    #        )
-    #    all_images.append(images)
-    #return torch.cat(all_images)
 
 #def generate(
 #    net,
@@ -308,6 +266,8 @@ def inference(
     mean_predictor_model: Module,
     seeds: list,
     dist: DistributedManager,
+    output_channels: int = 3,
+    sampling_kwargs: dict = {},
 ):
     """Function to generate an image
     """
@@ -315,20 +275,29 @@ def inference(
     # Memory format
     input_tensor = input_tensor.to(memory_format=torch.channels_last)
 
+    # Get rank seeds
+    rank_seeds = torch.as_tensor(seeds)[dist.rank :: dist.world_size]
+
     # Run inference on mean predictor
     output_mean = _mean_predictor_inference(
         input_tensor=input_tensor,
         lead_time=lead_time,
         mean_predictor_model=mean_predictor_model,
         dist=dist,
-        sigma_min=0.0,
-        sigma_max=0.0,
-        num_steps=2,
-        rho=7,
+        output_channels=output_channels,
+        rank_seeds=rank_seeds,
     )
 
     # Run inference on generative model TODO: Implement
-    output_gen = torch.zeros_like(input_tensor)
+    output_gen = _generative_model_inference(
+        input_tensor=input_tensor,
+        lead_time=lead_time,
+        generative_model=generative_model,
+        dist=dist,
+        output_channels=output_channels,
+        rank_seeds=rank_seeds,
+        sampling_kwargs=sampling_kwargs,
+    )
 
     # Combine regression and residual images
     output = output_mean + output_gen
@@ -339,9 +308,29 @@ def inference(
 if __name__ == "__main__":
 
     # Parameters
-    patch_shape_x = 448
-    patch_shape_y = 448
-  
+    output_channels = 3
+    shape_x = 1056
+    shape_y = 1792
+    sigma_min = None
+    sigma_max = None
+    rho = 7
+    S_churn = 0.0
+    S_min = 0.0
+    S_max = 0.0
+    S_noise = 0.0
+    sampler_kwargs = {
+        "patch_shape": 448,
+        "overlap_pix": 4,
+        "boundary_pix": 2,
+        "sigma_min": sigma_min,
+        "sigma_max": sigma_max,
+        "rho": rho,
+        "S_churn": S_churn,
+        "S_min": S_min,
+        "S_max": S_max,
+        "S_noise": S_noise,
+    }
+ 
     # Get distributed manager
     DistributedManager.initialize()
     dist = DistributedManager()
@@ -349,19 +338,21 @@ if __name__ == "__main__":
     # Load model
     mean_predictor_model_path = "./UNet.0.1960960.mdlus"
     mean_predictor_model = Module.from_checkpoint(mean_predictor_model_path)
+    mean_predictor_model = mean_predictor_model.to(dist.device)
+    generative_model_path = "./EDMPrecondSRV2.0.5821440.mdlus"
+    generative_model = Module.from_checkpoint(generative_model_path)
+    generative_model = generative_model.to(dist.device)
 
     # Call inference function 
-    input_tensor = torch.zeros((1, 3, patch_shape_x, patch_shape_y))
+    input_tensor = torch.zeros((1, 42, shape_x, shape_y)).to(dist.device)
     output_tensor = inference(
         input_tensor=input_tensor,
-        lead_time=1,
-        generative_model=None,
+        lead_time=torch.Tensor([1]).to(dist.device).to(torch.int32),
+        generative_model=generative_model,
         mean_predictor_model=mean_predictor_model,
         seeds=[0],
         dist=dist,
+        output_channels=output_channels,
+        sampling_kwargs=sampler_kwargs
     )
     print(output_tensor)
-
-
-
-

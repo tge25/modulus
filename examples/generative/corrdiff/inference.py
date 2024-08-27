@@ -36,43 +36,49 @@ except ImportError:
 
 def _mean_predictor_inference(
     input_tensor: torch.Tensor,
-    lead_time: int,
+    lead_time: torch.Tensor,
     mean_predictor_model: Module,
-    output_channels: int = 3,
-    seeds: list = [0],
+    output_channels: int = 8,
 ):
     """ Run inference on the mean predictor model.
 
+    Parameters
+    ----------
     input_tensor: torch.Tensor
-        Input tensor to run inference on. shape: (B, C, H, W)
+        Input tensor to run inference on. shape: (1, C, H, W), eg (1, 37, 1056, 1792)
+    lead_time: torch.Tensor
+        Lead time tensor. shape: (1)
+    mean_predictor_model: Module
+        Mean predictor model to run inference on.
+    output_channels: int
+        Number of output channels to generate. eg 8.
+
+    Returns
+    -------
+    output_tensor: torch.Tensor
+        Output tensor from the mean predictor model. shape: (N, C, H, W), eg (1, 8, 1056, 1792)
     """
 
-    # Loop over seeds in batch
-    output_tensor = []
-    for seed in seeds:
+    # Generate latents (TODO: V3 Specific)
+    latents = torch.zeros(
+        (
+            1,
+            output_channels + 1, # TODO: Hack for V3, remove +1
+            input_tensor.shape[2],
+            input_tensor.shape[3],
+        ),
+        device=input_tensor.device,
+    ).to(memory_format=torch.channels_last)
 
-        # Generate latents (TODO: V3 Specific)
-        latents = torch.zeros(
-            (
-                1,
-                output_channels + 1, # TODO: Hack for V3, remove +1
-                input_tensor.shape[2],
-                input_tensor.shape[3],
-            ),
-            device=input_tensor.device,
-        ).to(memory_format=torch.channels_last)
+    # Main sampling loop.
+    t_hat = torch.tensor(1.0).to(torch.float32).to(input_tensor.device)
 
-        # Main sampling loop.
-        t_hat = torch.tensor(1.0).to(torch.float32).to(input_tensor.device)
-
-        # Run regression on just a single batch element and then repeat
-        with torch.inference_mode():
-            output_tensor.append(
-                mean_predictor_model(latents, input_tensor, t_hat, lead_time_label=lead_time).to(torch.float32)
-            )
-
-    # Return output tensor
-    return torch.cat(output_tensor)
+    # Run regression on just a single batch element and then repeat
+    with torch.inference_mode():
+        output_tensor = (
+            mean_predictor_model(latents, input_tensor, t_hat, lead_time_label=lead_time).to(torch.float32)
+        )
+    return output_tensor
 
 
 def _generative_model_inference(
@@ -80,12 +86,33 @@ def _generative_model_inference(
     lead_time: int,
     mean_hr: torch.Tensor,
     generative_model: Module,
-    output_channels: int = 3,
+    output_channels: int = 8,
     seeds: list = [0],
     sampling_kwargs: dict = {},
 ):
-    """Generate random images using the techniques described in the paper
-    "Elucidating the Design Space of Diffusion-Based Generative Models".
+    """ Run inference on the generative model.
+
+    Parameters
+    ----------
+    input_tensor: torch.Tensor
+        Input tensor to run inference on. shape: (1, C, H, W), eg (1, 37, 1056, 1792)
+    lead_time: torch.Tensor
+        Lead time tensor. shape: (1)
+    mean_hr: torch.Tensor
+        Mean predictor output tensor. shape: (1, C, H, W), eg (1, 8, 1056, 1792)
+    generative_model: Module
+        Generative model to run inference on.
+    output_channels: int
+        Number of output channels to generate. eg 8.
+    seeds: list
+        List of seeds to use for inference. Each seed will generate a different output.
+    sampling_kwargs: dict
+        Dictionary containing sampling parameters for the generative model.
+
+    Returns
+    -------
+    output_tensor: torch.Tensor
+        Output tensor from the generative model. shape: (len(seeds), C, H, W), eg (1, 8, 1056, 1792)
     """
 
     # Check if sampling kwargs has required keys
@@ -117,7 +144,7 @@ def _generative_model_inference(
         latents = rnd.randn(
             [
                 1,
-                output_channels + 1, # TODO: Hack for V3, remove +1
+                output_channels + 1, # TODO: Hack for V3, remove +1 if possible
                 input_tensor.shape[2],
                 input_tensor.shape[3],
             ],
@@ -148,10 +175,32 @@ def inference(
     generative_model: Module,
     mean_predictor_model: Module,
     seeds: list,
-    output_channels: int = 3,
+    output_channels: int = 8,
     sampling_kwargs: dict = {},
 ):
-    """Function to generate an image
+    """Function to generate an image CorrDiff US model.
+
+    Parameters
+    ----------
+    input_tensor: torch.Tensor
+        Input tensor to run inference on. shape: (1, C, H, W), eg (1, 37, 1056, 1792)
+    lead_time: torch.Tensor
+        Lead time tensor. shape: (1)
+    generative_model: Module
+        Generative model to run inference on.
+    mean_predictor_model: Module
+        Mean predictor model to run inference on.
+    seeds: list
+        List of seeds to use for inference. Each seed will generate a different output.
+    output_channels: int
+        Number of output channels to generate. eg 8.
+    sampling_kwargs: dict
+        Dictionary containing sampling parameters for the generative model.
+
+    Returns
+    -------
+    output_tensor: torch.Tensor
+        Output tensor from the generative model. shape: (len(seeds), C, H, W), eg (1, 8, 1056, 1792)
     """
 
     # Memory format
@@ -163,7 +212,6 @@ def inference(
         lead_time=lead_time,
         mean_predictor_model=mean_predictor_model,
         output_channels=output_channels,
-        seeds=seeds,
     )
 
     # Run inference on generative model
@@ -178,7 +226,7 @@ def inference(
     )
 
     # Combine regression and residual images
-    output = output_mean + output_gen
+    output = output_mean + output_gen # TODO: check reshaping here
 
     # Return output
     return output
@@ -208,8 +256,6 @@ if __name__ == "__main__":
     input_tensor = torch.zeros((1, 37, shape_x, shape_y))
     for i, var in enumerate(ds.data_vars):
         input_tensor[0, i] = torch.tensor(ds[var].values)
-        import numpy as np
-        print(np.mean(ds[var].values))
     del ds
 
     # Load mean predictor model
@@ -236,6 +282,8 @@ if __name__ == "__main__":
         output_channels=output_channels,
         sampling_kwargs=sampler_kwargs
     )
+
+    # Save output
     import matplotlib.pyplot as plt
     for i in range(output_tensor.shape[1]):
         plt.imshow(output_tensor[0, i].cpu().numpy())

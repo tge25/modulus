@@ -18,6 +18,8 @@
 """
 
 import torch
+import math
+import xarray as xr
 
 from modulus import Module
 from modulus.distributed import DistributedManager
@@ -61,11 +63,15 @@ def _mean_predictor_inference(
         ).to(memory_format=torch.channels_last)
 
         # Main sampling loop.
-        t_hat = torch.tensor(1.0).to(torch.float64).to(dist.device)
+        t_hat = torch.tensor(1.0).to(torch.float32).to(dist.device)
 
         # Run regression on just a single batch element and then repeat
+        #print(latents.dtype)
+        #print(input_tensor.dtype)
+        #print(t_hat.dtype)
+        #print(lead_time.dtype)
         output_tensor.append(
-            mean_predictor_model(latents, input_tensor, t_hat, lead_time_label=lead_time).to(torch.float64)
+            mean_predictor_model(latents, input_tensor, t_hat, lead_time_label=lead_time).to(torch.float32)
         )
 
     # Return output tensor
@@ -107,13 +113,6 @@ def _generative_model_inference(
             device=dist.device,
         ).to(memory_format=torch.channels_last)
 
-        class_labels = None
-        print(generative_model.label_dim)
-        if generative_model.label_dim: # TODO: have no idea what this is
-            class_labels = torch.eye(net.label_dim, device=dist.device)[
-                rnd.randint(net.label_dim, size=[seed_batch_size], device=device)
-            ]
-
         # Sampling method
         sampler_kwargs = {
             key: value for key, value in sampling_kwargs.items() if value is not None
@@ -129,11 +128,14 @@ def _generative_model_inference(
 
         # Run inference
         with torch.inference_mode():
+            #print(latents.dtype)
+            #print(input_tensor.dtype)
+            #print(sampler_kwargs["mean_hr"].dtype)
             images = sampler_fn(
-                net,
+                generative_model,
                 latents,
-                img_lr,
-                class_labels,
+                input_tensor,
+                class_labels=None,
                 randn_like=torch.randn_like,
                 **sampler_kwargs,
             )
@@ -141,122 +143,6 @@ def _generative_model_inference(
 
     # Return output tensor
     return torch.cat(output_tensor)
-
-
-
-
-#def generate(
-#    net,
-#    seeds,
-#    seed_batch_size,
-#    img_shape,  # as (img_shape_x, img_shape_y)
-#    img_out_channels,
-#    sampling_method=None,
-#    img_lr=None,
-#    pretext=None,
-#    **sampler_kwargs,
-#):
-#    """Generate random images using the techniques described in the paper
-#    "Elucidating the Design Space of Diffusion-Based Generative Models".
-#    """
-#
-#    if sampling_method == "stochastic":
-#        # import stochastic sampler
-#        try:
-#            from edmss import edm_sampler
-#        except ImportError:
-#            raise ImportError(
-#                "Please get the edm_sampler by running: pip install git+https://github.com/mnabian/edmss.git"
-#            )
-#        sampler_kwargs.update(({"img_shape": img_shape}))
-#
-#    # Instantiate distributed manager.
-#    dist = DistributedManager()
-#    device = dist.device
-#
-#    num_batches = (
-#        (len(seeds) - 1) // (seed_batch_size * dist.world_size) + 1
-#    ) * dist.world_size
-#    all_batches = torch.as_tensor(seeds).tensor_split(num_batches)
-#    rank_batches = all_batches[dist.rank :: dist.world_size]
-#
-#    # Synchronize
-#    if dist.world_size > 1:
-#        torch.distributed.barrier()
-#
-#    img_lr = img_lr.to(memory_format=torch.channels_last)
-#
-#    # Loop over batches.
-#    all_images = []
-#    for batch_seeds in tqdm.tqdm(rank_batches, unit="batch", disable=(dist.rank != 0)):
-#        with nvtx.annotate(f"generate {len(all_images)}", color="rapids"):
-#            batch_size = len(batch_seeds)
-#            if batch_size == 0:
-#                continue
-#
-#            # Pick latents and labels.
-#            rnd = StackedRandomGenerator(device, batch_seeds)
-#
-#            if model_type == 'v3':
-#                latents = rnd.randn(
-#                    [
-#                        seed_batch_size,
-#                        img_out_channels + 1,
-#                        img_shape[1],
-#                        img_shape[0],
-#                    ],
-#                    device=device,
-#                ).to(memory_format=torch.channels_last)
-#
-#            else:
-#                latents = rnd.randn(
-#                    [
-#                        seed_batch_size,
-#                        img_out_channels,
-#                        img_shape[1],
-#                        img_shape[0],
-#                    ],
-#                    device=device,
-#                ).to(memory_format=torch.channels_last)
-#
-#            class_labels = None
-#            if net.label_dim:
-#                class_labels = torch.eye(net.label_dim, device=device)[
-#                    rnd.randint(net.label_dim, size=[seed_batch_size], device=device)
-#                ]
-#
-#            # Generate images.
-#            sampler_kwargs = {
-#                key: value for key, value in sampler_kwargs.items() if value is not None
-#            }
-#            if pretext == "gen":
-#                if sampling_method == "deterministic":
-#                    sampler_fn = ablation_sampler
-#                elif sampling_method == "stochastic":
-#                    sampler_fn = edm_sampler
-#                else:
-#                    raise ValueError(
-#                        f"Unknown sampling method {sampling_method}. Should be either 'stochastic' or 'deterministic'."
-#                    )
-#            elif pretext == "reg":
-#                latents = torch.zeros_like(latents, memory_format=torch.channels_last)
-#                sampler_fn = unet_regression
-#            else:
-#                raise ValueError(
-#                    f"Unknown pretext {pretext}. Should be either 'gen' or 'reg'."
-#                )
-#
-#            with torch.inference_mode():
-#                images = sampler_fn(
-#                    net,
-#                    latents,
-#                    img_lr,
-#                    class_labels,
-#                    randn_like=torch.randn_like,
-#                    **sampler_kwargs,
-#                )
-#            all_images.append(images)
-#    return torch.cat(all_images)
 
 
 def inference(
@@ -288,19 +174,25 @@ def inference(
         rank_seeds=rank_seeds,
     )
 
-    # Run inference on generative model TODO: Implement
-    output_gen = _generative_model_inference(
-        input_tensor=input_tensor,
-        lead_time=lead_time,
-        generative_model=generative_model,
-        dist=dist,
-        output_channels=output_channels,
-        rank_seeds=rank_seeds,
-        sampling_kwargs=sampling_kwargs,
-    )
+    # TODO: Hacky
+    sampling_kwargs["mean_hr"] = output_mean
+    sampling_kwargs["lead_time_label"] = lead_time
+    #print(output_mean.shape)
 
-    # Combine regression and residual images
-    output = output_mean + output_gen
+    ## Run inference on generative model TODO: Implement
+    #output_gen = _generative_model_inference(
+    #    input_tensor=input_tensor,
+    #    lead_time=lead_time,
+    #    generative_model=generative_model,
+    #    dist=dist,
+    #    output_channels=output_channels,
+    #    rank_seeds=rank_seeds,
+    #    sampling_kwargs=sampling_kwargs,
+    #)
+
+    ## Combine regression and residual images
+    #output = output_mean + output_gen
+    output = output_mean
 
     # Return output
     return output
@@ -308,46 +200,53 @@ def inference(
 if __name__ == "__main__":
 
     # Parameters
-    output_channels = 3
+    output_channels = 8 # Maybe 9 for V3
     shape_x = 1056
     shape_y = 1792
-    sigma_min = None
-    sigma_max = None
-    rho = 7
-    S_churn = 0.0
-    S_min = 0.0
-    S_max = 0.0
-    S_noise = 0.0
+    img_shape = (shape_y, shape_x)
     sampler_kwargs = {
+        "num_steps": 18,
         "patch_shape": 448,
         "overlap_pix": 4,
         "boundary_pix": 2,
-        "sigma_min": sigma_min,
-        "sigma_max": sigma_max,
-        "rho": rho,
-        "S_churn": S_churn,
-        "S_min": S_min,
-        "S_max": S_max,
-        "S_noise": S_noise,
+        "rho": 7,
+        "S_churn": 0,
+        "S_min": 0,
+        "S_max": math.inf,
+        "S_noise": 1,
+        "img_shape": (shape_y, shape_x),
     }
  
     # Get distributed manager
     DistributedManager.initialize()
     dist = DistributedManager()
 
-    # Load model
+    # Get Data
+    data_path = "/home/oliver/unleashed/validation_report/twc_mvp_v3_full1_0.nc"
+    ds = xr.open_dataset(data_path, group="input").isel(time=0)
+    input_tensor = torch.zeros((1, 37, shape_x, shape_y)).to(dist.device)
+    for i, var in enumerate(ds.data_vars):
+        input_tensor[0, i] = torch.tensor(ds[var].values).to(dist.device)
+    del ds
+
+    # Load mean predictor model
     mean_predictor_model_path = "./UNet.0.1960960.mdlus"
     mean_predictor_model = Module.from_checkpoint(mean_predictor_model_path)
     mean_predictor_model = mean_predictor_model.to(dist.device)
+    mean_predictor_model.eval().to(memory_format=torch.channels_last)
+    mean_predictor_model.use_fp16 = True
+
+    # Load generative model
     generative_model_path = "./EDMPrecondSRV2.0.5821440.mdlus"
     generative_model = Module.from_checkpoint(generative_model_path)
     generative_model = generative_model.to(dist.device)
+    generative_model.eval().to(memory_format=torch.channels_last)
+    generative_model.use_fp16 = True
 
     # Call inference function 
-    input_tensor = torch.zeros((1, 42, shape_x, shape_y)).to(dist.device)
     output_tensor = inference(
         input_tensor=input_tensor,
-        lead_time=torch.Tensor([1]).to(dist.device).to(torch.int32),
+        lead_time=torch.Tensor([1]).to(dist.device).to(torch.float32),
         generative_model=generative_model,
         mean_predictor_model=mean_predictor_model,
         seeds=[0],
@@ -355,4 +254,5 @@ if __name__ == "__main__":
         output_channels=output_channels,
         sampling_kwargs=sampler_kwargs
     )
-    print(output_tensor)
+    plt.imshow(output_tensor[0, 0].cpu().numpy())
+    plt.show()

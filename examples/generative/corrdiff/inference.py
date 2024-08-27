@@ -22,7 +22,6 @@ import math
 import xarray as xr
 
 from modulus import Module
-from modulus.distributed import DistributedManager
 from modulus.utils.generative import (
     StackedRandomGenerator,
 )
@@ -39,7 +38,6 @@ def _mean_predictor_inference(
     input_tensor: torch.Tensor,
     lead_time: int,
     mean_predictor_model: Module,
-    dist: DistributedManager, # (TODO: Maybe refactor to remove this?)
     output_channels: int = 3,
     seeds: list = [0],
 ):
@@ -61,11 +59,11 @@ def _mean_predictor_inference(
                 input_tensor.shape[2],
                 input_tensor.shape[3],
             ),
-            device=dist.device,
+            device=input_tensor.device,
         ).to(memory_format=torch.channels_last)
 
         # Main sampling loop.
-        t_hat = torch.tensor(1.0).to(torch.float32).to(dist.device)
+        t_hat = torch.tensor(1.0).to(torch.float32).to(input_tensor.device)
 
         # Run regression on just a single batch element and then repeat
         with torch.inference_mode():
@@ -82,7 +80,6 @@ def _generative_model_inference(
     lead_time: int,
     mean_hr: torch.Tensor,
     generative_model: Module,
-    dist: DistributedManager, # (TODO: Maybe refactor to remove this?)
     output_channels: int = 3,
     seeds: list = [0],
     sampling_kwargs: dict = {},
@@ -112,7 +109,7 @@ def _generative_model_inference(
 
         # Instantiate random generator
         rnd = StackedRandomGenerator(
-            dist.device,
+            input_tensor.device,
             [seed],
         )
 
@@ -124,7 +121,7 @@ def _generative_model_inference(
                 input_tensor.shape[2],
                 input_tensor.shape[3],
             ],
-            device=dist.device,
+            device=input_tensor.device,
         ).to(memory_format=torch.channels_last)
 
         # Run inference
@@ -165,7 +162,6 @@ def inference(
         input_tensor=input_tensor,
         lead_time=lead_time,
         mean_predictor_model=mean_predictor_model,
-        dist=dist,
         output_channels=output_channels,
         seeds=seeds,
     )
@@ -176,7 +172,6 @@ def inference(
         lead_time=lead_time,
         mean_hr=output_mean,
         generative_model=generative_model,
-        dist=dist,
         output_channels=output_channels,
         seeds=seeds,
         sampling_kwargs=sampling_kwargs,
@@ -207,16 +202,12 @@ if __name__ == "__main__":
         "img_shape": (shape_y, shape_x),
     }
  
-    # Get distributed manager
-    DistributedManager.initialize()
-    dist = DistributedManager()
-
     # Get Data
     data_path = "/home/oliver/unleashed/validation_report/twc_mvp_v3_full1_0.nc"
     ds = xr.open_dataset(data_path, group="input").isel(time=0)
-    input_tensor = torch.zeros((1, 37, shape_x, shape_y)).to(dist.device)
+    input_tensor = torch.zeros((1, 37, shape_x, shape_y))
     for i, var in enumerate(ds.data_vars):
-        input_tensor[0, i] = torch.tensor(ds[var].values).to(dist.device)
+        input_tensor[0, i] = torch.tensor(ds[var].values)
         import numpy as np
         print(np.mean(ds[var].values))
     del ds
@@ -224,25 +215,24 @@ if __name__ == "__main__":
     # Load mean predictor model
     mean_predictor_model_path = "./UNet.0.1960960.mdlus"
     mean_predictor_model = Module.from_checkpoint(mean_predictor_model_path)
-    mean_predictor_model = mean_predictor_model.to(dist.device)
+    mean_predictor_model = mean_predictor_model
     mean_predictor_model.eval().to(memory_format=torch.channels_last)
     mean_predictor_model.use_fp16 = True
 
     # Load generative model
     generative_model_path = "./EDMPrecondSRV2.0.5821440.mdlus"
     generative_model = Module.from_checkpoint(generative_model_path)
-    generative_model = generative_model.to(dist.device)
+    generative_model = generative_model
     generative_model.eval().to(memory_format=torch.channels_last)
     generative_model.use_fp16 = True
 
     # Call inference function 
     output_tensor = inference(
         input_tensor=input_tensor,
-        lead_time=torch.Tensor([1]).to(dist.device).to(torch.float32),
+        lead_time=torch.Tensor([1]).to(torch.float32),
         generative_model=generative_model,
         mean_predictor_model=mean_predictor_model,
         seeds=[0],
-        dist=dist,
         output_channels=output_channels,
         sampling_kwargs=sampler_kwargs
     )

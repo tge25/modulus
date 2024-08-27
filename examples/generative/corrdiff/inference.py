@@ -66,13 +66,10 @@ def _mean_predictor_inference(
         t_hat = torch.tensor(1.0).to(torch.float32).to(dist.device)
 
         # Run regression on just a single batch element and then repeat
-        #print(latents.dtype)
-        #print(input_tensor.dtype)
-        #print(t_hat.dtype)
-        #print(lead_time.dtype)
-        output_tensor.append(
-            mean_predictor_model(latents, input_tensor, t_hat, lead_time_label=lead_time).to(torch.float32)
-        )
+        with torch.inference_mode():
+            output_tensor.append(
+                mean_predictor_model(latents, input_tensor, t_hat, lead_time_label=lead_time).to(torch.float32)
+            )
 
     # Return output tensor
     return torch.cat(output_tensor)
@@ -193,6 +190,7 @@ def inference(
     ## Combine regression and residual images
     #output = output_mean + output_gen
     output = output_mean
+    print(output.shape)
 
     # Return output
     return output
@@ -254,5 +252,6 @@ if __name__ == "__main__":
         output_channels=output_channels,
         sampling_kwargs=sampler_kwargs
     )
+    import matplotlib.pyplot as plt
     plt.imshow(output_tensor[0, 0].cpu().numpy())
     plt.show()

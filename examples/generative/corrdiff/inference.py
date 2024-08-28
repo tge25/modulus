@@ -19,6 +19,7 @@
 
 import torch
 import math
+import numpy as np
 import xarray as xr
 
 from modulus import Module
@@ -174,7 +175,8 @@ def inference(
     lead_time: int,
     generative_model: Module,
     mean_predictor_model: Module,
-    seeds: list,
+    samples: int = 1,
+    seed: int = 0,
     output_channels: int = 8,
     sampling_kwargs: dict = {},
 ):
@@ -190,8 +192,10 @@ def inference(
         Generative model to run inference on.
     mean_predictor_model: Module
         Mean predictor model to run inference on.
-    seeds: list
-        List of seeds to use for inference. Each seed will generate a different output.
+    samples: int
+        Number of samples to generate.
+    seed: int
+        Seed to use for inference.
     output_channels: int
         Number of output channels to generate. eg 8.
     sampling_kwargs: dict
@@ -200,8 +204,12 @@ def inference(
     Returns
     -------
     output_tensor: torch.Tensor
-        Output tensor from the generative model. shape: (len(seeds), C, H, W), eg (1, 8, 1056, 1792)
+        Output tensor from the generative model. shape: (samples, C, H, W), eg (1, 8, 1056, 1792)
     """
+
+    # Generate seeds
+    np.random.seed(seed) # NOTE: worried if I used torch.seed() here, it would affect something down the line with pytorch
+    seeds = np.random.randint(0, 2 ** 32, samples)
 
     # Memory format
     input_tensor = input_tensor.to(memory_format=torch.channels_last)
@@ -278,7 +286,8 @@ if __name__ == "__main__":
         lead_time=torch.Tensor([1]).to(torch.float32),
         generative_model=generative_model,
         mean_predictor_model=mean_predictor_model,
-        seeds=[0],
+        samples=1,
+        seed=0,
         output_channels=output_channels,
         sampling_kwargs=sampler_kwargs
     )

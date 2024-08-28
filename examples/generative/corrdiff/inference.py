@@ -162,7 +162,7 @@ def _generative_model_inference(
                 randn_like=torch.randn_like,
                 mean_hr=mean_hr,
                 lead_time_label=lead_time,
-                **sampler_kwargs,
+                **sampling_kwargs,
             )
         output_tensor.append(images)
 
@@ -245,8 +245,8 @@ if __name__ == "__main__":
     output_channels = 8 # Maybe 9 for V3
     shape_x = 1056
     shape_y = 1792
-    sampler_kwargs = {
-        "num_steps": 18,
+    sampling_kwargs = {
+        "num_steps": 1,
         "patch_shape": 448,
         "overlap_pix": 4,
         "boundary_pix": 2,
@@ -289,7 +289,7 @@ if __name__ == "__main__":
         samples=1,
         seed=0,
         output_channels=output_channels,
-        sampling_kwargs=sampler_kwargs
+        sampling_kwargs=sampling_kwargs
     )
 
     # Save output

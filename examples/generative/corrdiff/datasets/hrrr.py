@@ -159,6 +159,8 @@ class HrrrForecastGEFSDataset(DownscalingDataset):
         if self.gefs_isobaric_channels:
             kept_gefs_isobaric_channels = [x for x in self.gefs_isobaric_channels if x in self.base_gefs_isobaric_channels]
             if len(kept_gefs_isobaric_channels) != len(self.gefs_isobaric_channels):
+                print(kept_gefs_isobaric_channels)
+                print(self.gefs_isobaric_channels)
                 print(f'Not all GEFS isobaric channels in dataset. Missing {self.gefs_isobaric_channels-kept_gefs_isobaric_channels}')
         else:
             kept_gefs_isobaric_channels = self.base_gefs_isobaric_channels

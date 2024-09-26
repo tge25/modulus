@@ -1,0 +1,324 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+hydra:
+  job:
+    chdir: False
+
+
+## Main options
+model_type: v3
+res_ckpt_filename: "/lustre/fsw/coreai_climate_earth2/corrdiff/training_output/diffusion_patch_twc_mvp1_2_mse2/checkpoints/EDMPrecondSRV2.0.5821440.mdlus"   
+  # Checkpoint filename for the generative model  
+reg_ckpt_filename: "/lustre/fsw/coreai_climate_earth2/corrdiff/training_output/regression_twc_mvp1_2_correctEntropy/checkpoints/UNet.0.1960960.mdlus"
+  # Checkpoint filename for the mean predictor model
+image_outdir: "/lustre/fsw/coreai_climate_earth2/corrdiff/inferences/twc_mvp_v3_ice_pred_only"
+  # Where to save the output images
+seeds: "0-3"
+  # Random seeds used for generation
+class_idx: null  
+  # Class label. Null is random
+num_steps: 18
+  # Number of sampling steps
+sample_res: "full"
+  # Sampling resolution
+regression_only: false
+  # regression only inference
+diffusion_only: false
+  # diffusion only inference
+sampling_method: stochastic
+  # Sampling method ["stochastic", "deterministic"]
+seed_batch_size: 1
+  # batch size across the seed dimension
+force_fp16: true
+  # Whether to force fp16 precision for the model. If false, it'll use the precision
+  # specified upon training.
+num_writer_workers: 1
+  # number of workers to use for writing file
+  # To support multiple workers a threadsafe version of the netCDF library must be used
+use_torch_compile: False
+  # whether to use torch.compile on the diffusion model
+  # this will make the first time stamp generation very slow due to compilation overheads
+  # but will significantly speed up subsequent inference runs
+
+## Data options
+## Data options
+patch_shape_x: 448
+patch_shape_y: 448
+  # Patch size. Patch-based sampling will be utilized if these dimensions differ from 
+  # img_shape_x and img_shape_y
+overlap_pixels: 4 
+  # Number of overlapping pixels between adjacent patches
+boundary_pixels: 2
+  # Number of boundary pixels to be cropped out. 2 is recommanded to address the boundary
+  # artifact.
+hr_mean_conditioning: true
+  # High-res mean (regression's output) as additional condition
+gridtype: "learnable"
+N_grid_channels: 100
+times:
+- "2024010300f00"
+- "2024010300f03"
+- "2024010300f06"
+- "2024010300f09"
+- "2024010300f12"
+- "2024010300f15"
+- "2024010300f18"
+- "2024010300f21"
+- "2024010300f24"
+- "2024010306f00"
+- "2024010306f03"
+- "2024010306f06"
+- "2024010306f09"
+- "2024010306f12"
+- "2024010306f15"
+- "2024010306f18"
+- "2024010306f21"
+- "2024010306f24"
+- "2024010312f00"
+- "2024010312f03"
+- "2024010312f06"
+- "2024010312f09"
+- "2024010312f12"
+- "2024010312f15"
+- "2024010312f18"
+- "2024010312f21"
+- "2024010312f24"
+- "2024010400f00"
+- "2024010400f03"
+- "2024010400f06"
+- "2024010400f09"
+- "2024010400f12"
+- "2024010400f15"
+- "2024010400f18"
+- "2024010400f21"
+- "2024010400f24"
+- "2024010600f00"
+- "2024010600f03"
+- "2024010600f06"
+- "2024010600f09"
+- "2024010600f12"
+- "2024010600f15"
+- "2024010600f18"
+- "2024010600f21"
+- "2024010600f24"
+- "2024010612f00"
+- "2024010612f03"
+- "2024010612f06"
+- "2024010612f09"
+- "2024010612f12"
+- "2024010612f15"
+- "2024010612f18"
+- "2024010612f21"
+- "2024010612f24"
+- "2024010718f00"
+- "2024010718f03"
+- "2024010718f06"
+- "2024010718f09"
+- "2024010718f12"
+- "2024010718f15"
+- "2024010718f18"
+- "2024010718f21"
+- "2024010718f24"
+- "2024011000f00"
+- "2024011000f03"
+- "2024011000f06"
+- "2024011000f09"
+- "2024011000f12"
+- "2024011000f15"
+- "2024011000f18"
+- "2024011000f21"
+- "2024011000f24"
+- "2024011018f00"
+- "2024011018f03"
+- "2024011018f06"
+- "2024011018f09"
+- "2024011018f12"
+- "2024011018f15"
+- "2024011018f18"
+- "2024011018f21"
+- "2024011018f24"
+- "2024011106f00"
+- "2024011106f03"
+- "2024011106f06"
+- "2024011106f09"
+- "2024011106f12"
+- "2024011106f15"
+- "2024011106f18"
+- "2024011106f21"
+- "2024011106f24"
+- "2024011112f00"
+- "2024011112f03"
+- "2024011112f06"
+- "2024011112f09"
+- "2024011112f12"
+- "2024011112f15"
+- "2024011112f18"
+- "2024011112f21"
+- "2024011112f24"
+- "2024011600f00"
+- "2024011600f03"
+- "2024011600f06"
+- "2024011600f09"
+- "2024011600f12"
+- "2024011600f15"
+- "2024011600f18"
+- "2024011600f21"
+- "2024011600f24"
+- "2024012206f00"
+- "2024012206f03"
+- "2024012206f06"
+- "2024012206f09"
+- "2024012206f12"
+- "2024012206f15"
+- "2024012206f18"
+- "2024012206f21"
+- "2024012206f24"
+- "2024012318f00"
+- "2024012318f03"
+- "2024012318f06"
+- "2024012318f09"
+- "2024012318f12"
+- "2024012318f15"
+- "2024012318f18"
+- "2024012318f21"
+- "2024012318f24"
+- "2024012400f00"
+- "2024012400f03"
+- "2024012400f06"
+- "2024012400f09"
+- "2024012400f12"
+- "2024012400f15"
+- "2024012400f18"
+- "2024012400f21"
+- "2024012400f24"
+- "2024012412f00"
+- "2024012412f03"
+- "2024012412f06"
+- "2024012412f09"
+- "2024012412f12"
+- "2024012412f15"
+- "2024012412f18"
+- "2024012412f21"
+- "2024012412f24"
+- "2024012500f00"
+- "2024012500f03"
+- "2024012500f06"
+- "2024012500f09"
+- "2024012500f12"
+- "2024012500f15"
+- "2024012500f18"
+- "2024012500f21"
+- "2024012500f24"
+- "2024012512f00"
+- "2024012512f03"
+- "2024012512f06"
+- "2024012512f09"
+- "2024012512f12"
+- "2024012512f15"
+- "2024012512f18"
+- "2024012512f21"
+- "2024012512f24"
+- "2024012600f00"
+- "2024012600f03"
+- "2024012600f06"
+- "2024012600f09"
+- "2024012600f12"
+- "2024012600f15"
+- "2024012600f18"
+- "2024012600f21"
+- "2024012600f24"
+- "2024012618f00"
+- "2024012618f03"
+- "2024012618f06"
+- "2024012618f09"
+- "2024012618f12"
+- "2024012618f15"
+- "2024012618f18"
+- "2024012618f21"
+- "2024012618f24"
+- "2024032306f00"
+- "2024032306f03"
+- "2024032306f06"
+- "2024032306f09"
+- "2024032306f12"
+- "2024032306f15"
+- "2024032306f18"
+- "2024032306f21"
+- "2024032306f24"
+- "2024032312f00"
+- "2024032312f03"
+- "2024032312f06"
+- "2024032312f09"
+- "2024032312f12"
+- "2024032312f15"
+- "2024032312f18"
+- "2024032312f21"
+- "2024032312f24"
+- "2024032418f00"
+- "2024032418f03"
+- "2024032418f06"
+- "2024032418f09"
+- "2024032418f12"
+- "2024032418f15"
+- "2024032418f18"
+- "2024032418f21"
+- "2024032418f24"
+- "2024032512f00"
+- "2024032512f03"
+- "2024032512f06"
+- "2024032512f09"
+- "2024032512f12"
+- "2024032512f15"
+- "2024032512f18"
+- "2024032512f21"
+- "2024032512f24"
+
+## Weather data options
+dataset:
+  type: "twc_mvp1"
+  ds_factor: 4
+  train: False
+  train_years: [2020, 2021, 2022, 2023,]
+  valid_years: [2024]
+  hrrr_window: [[1,1057], [4,1796]] # need dims to be divisible by 16 [[0,1024], [0,1024]]
+  sample_shape: null #[1024, 1024] # 1024,1024 w/ 1 batch 4 hrrr channels and all era5 channels is 77gb
+  train_test_split: False
+  
+
+## Deterministic sampler options
+sigma_min: null
+  # Lowest noise level
+sigma_max: null
+  # Highest noise level
+rho: 7
+  # Time step exponent
+solver: euler
+  # ODE solver [euler, heun]
+discretization: "edm"
+  # Time step discretization [vp, ve, iddpm, edm]
+schedule: "linear"
+  # noise schedule sigma(t) [vp, ve, linear]
+scaling: null
+  # Signal scaling s(t) [vp, none]
+S_churn: 0.2
+  # Stochasticity strength
+S_min: 0
+  # Stochasticity min noise level
+S_max: .inf 
+  # Stochasticity max noise level
+S_noise: 1
+  # Stochasticity noise inflation

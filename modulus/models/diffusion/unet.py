@@ -147,6 +147,7 @@ class UNet(Module):  # TODO a lot of redundancy, need to clean up
             else torch.float32
         )
 
+        print("inside unet", x.shape)
         F_x = self.model(
             x.to(dtype),  # (c_in * x).to(dtype),
             torch.zeros(

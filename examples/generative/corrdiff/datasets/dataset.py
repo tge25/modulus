@@ -21,11 +21,11 @@ import torch
 from modulus.utils.generative import InfiniteSampler
 from modulus.distributed import DistributedManager
 
-from . import base, cwb, hrrr, hrrr_new
+from . import base, cwb, hrrr, hrrr_ens
 
 
 # this maps all known dataset types to the corresponding init function
-known_datasets = {"cwb": cwb.get_zarr_dataset, "twc_mvp1": hrrr.get_dataset, "twc_mvp1_new": hrrr_new.get_dataset}
+known_datasets = {"cwb": cwb.get_zarr_dataset, "twc_mvp1": hrrr.get_dataset, "twc_mvp1_ens": hrrr_ens.get_dataset}
 
 def init_train_valid_datasets_from_config(
     dataset_cfg: dict,

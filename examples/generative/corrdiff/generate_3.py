@@ -46,7 +46,7 @@ from datasets.time import convert_datetime_to_cftime, time_range
 
 
 time_format = "%Y-%m-%dT%H:%M:%S"
-model_type = 'v3'
+model_type = 'v2'
 
 @hydra.main(version_base="1.2", config_path="conf", config_name="config_generate")
 def main(cfg: DictConfig) -> None:

@@ -58,7 +58,7 @@ gefs_surface_channels = ["u10m", "v10m", "t2m", "q2m", "sp", "msl", "precipitabl
 gefs_isobaric_channels = ['u1000', 'u925', 'u850', 'u700', 'u500', 'u250', 'v1000', 'v925', 'v850', 'v700', 'v500', 'v250', 'z1000', 'z925', 'z850', 'z700', 'z500', 'z250', 't1000', 't925', 't850', 't700', 't500', 't250',  'q1000', 'q925', 'q850', 'q700', 'q500', 'q250']
 hrrr_stats_channels = ["u10m", "v10m", "t2m", "precip", "cat_snow", "cat_ice", "cat_freez", "cat_rain", "refc"]
 
-path = "/lustre/fsw/coreai_climate_earth2/corrdiff/inferences/twc_mvp_diffusion_v3_winter_storm1_0.nc" #"image_outdir_val_paper_plot_0.nc"
+path = "/lustre/fsw/coreai_climate_earth2/corrdiff/inferences/twc_mvp_diffusion_v3_movie_winter_storms_test_0.nc" #"image_outdir_val_paper_plot_0.nc"
 output_name = "twc_mvp1_v3_schurn_p5"
 
 ds = xarray.open_dataset(path)
@@ -94,8 +94,6 @@ for movie in range(0,2):
         plt.style.use('dark_background')
 
         var = "precip"
-        print(ds_truth[var][i, :, :].values)
-        exit(-1)
         ax = plt.subplot(nrows, ncolumns, 1, projection=ccrs.PlateCarree())
         gl = ax.gridlines(
             crs=ccrs.PlateCarree(),
@@ -114,7 +112,6 @@ for movie in range(0,2):
         crps_mean = xskillscore.crps_ensemble(
             ds_truth[var][i, :, :], ds_prediction[var].mean(dim="ensemble")[i, :, :].expand_dims("ensemble"), member_dim="ensemble", dim=dim
         )
-        
         plt.title("mean | MAE: %f"%crps_mean)
         plt.colorbar(im1, ax=ax, shrink=0.5)
         gl.right_labels = False

@@ -492,7 +492,7 @@ class RegressionLossEntropy:
         input = torch.zeros_like(y, device=img_clean.device)
         D_yn = net(input, y_lr, sigma, labels, lead_time_label=lead_time_label, augment_labels=augment_labels)
         loss1 = weight * ((D_yn[:,:4] - y[:,:4]) ** 2)
-        loss2 = 3 * weight * self.entropy(D_yn[:,4:], y[:,4:])[:, None]
+        loss2 = weight * self.entropy(D_yn[:,4:], y[:,4:])[:, None]
         loss = torch.cat((loss1,loss2), dim=1)
         return loss, loss1, loss2
 

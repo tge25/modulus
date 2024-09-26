@@ -53,43 +53,43 @@ vars_baseline = ["10u", "10v", "2t"]
 metrics = np.zeros((4, 8, 9))
 baseline_path = "/lustre/fsw/coreai_climate_earth2/eos-corrdiff-dir/scores/v1/HRRR_large_validation/patched_500kreg_partial/25004/scores.nc"
 
-for time in range(0,9):
-        file_name = f"scores_pmean_m1p2{time:02d}_0"
-        metric1 = xr.open_dataset(file_name)
-        file_name = f"scores_pmean_m1p2{time:02d}_1"
-        metric2 = xr.open_dataset(file_name)
-        metric = xr.concat((metric1, metric2), dim="time")
+file_name = f"/lustre/fsw/coreai_climate_earth2/corrdiff/scores/score_v3_new_0"
+metric1 = xr.open_dataset(file_name)
+file_name = f"/lustre/fsw/coreai_climate_earth2/corrdiff/scores/score_v3_new_1"
+metric2 = xr.open_dataset(file_name)
+metric = xr.concat((metric1, metric2), dim="time")
+print(metric["u10m"].values.shape)
 
-        for i,var in enumerate(vars):
-                metrics[:,i,time] =  np.mean(metric[var].values, axis=1)
+for i,var in enumerate(vars):
+    metrics[:,i,] =  np.mean(metric[var].values, axis=1)
 
 print(metrics)
 plt.figure(figsize=(10,10))
 plt.subplot(2,2,1)
 for i,var in enumerate(vars):
-        plt.plot(metrics[0][i])
+        plt.semilogy(metrics[0][i])
 plt.legend(vars)
 plt.title("RMSE")
 
 plt.subplot(2,2,2)
 for i,var in enumerate(vars):
-        plt.plot(metrics[1][i])
+        plt.semilogy(metrics[1][i])
 plt.legend(vars)
 plt.title("CRPS")
 
 plt.subplot(2,2,3)
 for i,var in enumerate(vars):
-        plt.plot(metrics[2][i])
+        plt.semilogy(metrics[2][i])
 plt.legend(vars)
 plt.title("STD")
 
 plt.subplot(2,2,4)
 for i,var in enumerate(vars):
-        plt.plot(metrics[3][i])
+        plt.semilogy(metrics[3][i])
 plt.legend(vars)
 plt.title("MAE")
 
-plt.savefig("twc_mvp_pmean_m1p2_validation1.png")
+plt.savefig("twc_mvp_v3_validation.png")
 
 
 plt.figure(figsize=(14, 8))
@@ -97,18 +97,18 @@ plt.figure(figsize=(14, 8))
 # Adjusted to create 2x4 subplots
 for i, var in enumerate(vars):
     data = []
-    for time in range(0, 9):
-        file_name_1 = f"scores_pmean_m1p2{time:02d}_0"
-        file_name_2 = f"scores_pmean_m1p2{time:02d}_1"
-        
-        metric1 = xr.open_dataset(file_name_1)
-        metric2 = xr.open_dataset(file_name_2)
-        
-        # Concatenate along time dimension
-        metric = xr.concat((metric1, metric2), dim="time")
-        
+    file_name_1 = f"/lustre/fsw/coreai_climate_earth2/corrdiff/scores/score_v3_new_0"
+    file_name_2 = f"/lustre/fsw/coreai_climate_earth2/corrdiff/scores/score_v3_new_1"
+
+    metric1 = xr.open_dataset(file_name_1)
+    metric2 = xr.open_dataset(file_name_2)
+
+    # Concatenate along time dimension
+    metric = xr.concat((metric1, metric2), dim="time")
+
         # Collect data for the specific variable
-        data.append(metric[var][1].values)
+    for j in range(9):
+        data.append(metric[var][1,:,j].values)
     if i<3:
         data.append(xr.open_dataset(baseline_path)[vars_baseline[i]][1].values)    
         ax = plt.subplot(2, 4, i + 1)
@@ -119,5 +119,5 @@ for i, var in enumerate(vars):
     ax.set_title(f"CRPS boxplot - {var}")
 
 plt.tight_layout()
-plt.savefig("crps_boxplot_pmean_m1p2.png")
+plt.savefig("crps_boxplot_v3.png")
 plt.show()

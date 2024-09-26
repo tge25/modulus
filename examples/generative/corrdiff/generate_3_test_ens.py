@@ -385,6 +385,7 @@ def generate_and_save(
     times = dataset.time()
 
     for image_tar, image_lr, index, lead_time in iter(data_loader):
+        print("image_lr shape from dataloader", image_lr.shape)
         
         if model_type == 'v3':
             precip = torch.sum(image_tar[:,4:, ], axis=1, keepdim = True)
@@ -618,7 +619,7 @@ def unet_regression(  # TODO a lot of redundancy, need to clean up
     t_hat = torch.tensor(1.0).to(torch.float64).cuda()
 
     # Run regression on just a single batch element and then repeat
-    print(x_hat.shape, x_lr.shape)
+    print("x_lr",x_lr.shape)
     x_next = net(x_hat[0:1], x_lr, t_hat, class_labels, lead_time_label=kwargs["lead_time_label"]).to(torch.float64)
 
     if x_hat.shape[0] > 1:
@@ -693,7 +694,10 @@ def save_images(
                 image_out2 = dataset.denormalize_output(image_out2)
 
         time = times[t_index]
-        writer.write_time(time_index, time)
+
+        if time[-2:] == "00":
+            writer.write_time(time_index//9, time)
+
         for channel_idx in range(image_out2.shape[1]):
             if model_type == "v3":
                 if channel_idx<image_out2.shape[1]-1:
@@ -707,16 +711,16 @@ def save_images(
 
             truth = image_tar2[0, channel_idx]
 
-            writer.write_truth(channel_name, time_index, truth)
+            writer.write_truth(channel_name, time_index//9, time_index%9, truth)
             writer.write_prediction(
-                channel_name, time_index, idx, image_out2[0, channel_idx]
+                channel_name, time_index//9, time_index%9, idx, image_out2[0, channel_idx]
             )
 
         input_channel_info = dataset.input_channels()
         for channel_idx in range(len(input_channel_info)):
             info = input_channel_info[channel_idx]
             channel_name = _get_name(info)
-            writer.write_input(channel_name, time_index, image_lr2[0, channel_idx])
+            writer.write_input(channel_name, time_index//9, time_index%9, image_lr2[0, channel_idx])
 
 
 class NetCDFWriter:
@@ -728,6 +732,7 @@ class NetCDFWriter:
         # create unlimited dimensions
         f.createDimension("time")
         f.createDimension("ensemble")
+        f.createDimension("forecast")
 
         if lat.shape != lon.shape:
             raise ValueError("lat and lon must have the same shape")
@@ -758,34 +763,33 @@ class NetCDFWriter:
 
         for variable in output_channels:
             name = _get_name(variable)
-            self.truth_group.createVariable(name, "f", dimensions=("time", "y", "x"))
+            self.truth_group.createVariable(name, "f", dimensions=("time", "forecast", "y", "x"))
             self.prediction_group.createVariable(
-                name, "f", dimensions=("ensemble", "time", "y", "x")
+                name, "f", dimensions=("ensemble", "time", "forecast", "y", "x")
             )
 
         if model_type == "v3":
-            self.truth_group.createVariable("cat_non", "f", dimensions=("time", "y", "x"))
+            self.truth_group.createVariable("cat_non", "f", dimensions=("time", "forecast", "y", "x"))
             self.prediction_group.createVariable(
-                "cat_non", "f", dimensions=("ensemble", "time", "y", "x")
+                "cat_non", "f", dimensions=("ensemble", "time", "forecast", "y", "x")
             )
 
         # setup input data in netCDF
-
         for variable in input_channels:
             name = _get_name(variable)
-            self.input_group.createVariable(name, "f", dimensions=("time", "y", "x"))
+            self.input_group.createVariable(name, "f", dimensions=("time", "forecast", "y", "x"))
 
-    def write_input(self, channel_name, time_index, val):
+    def write_input(self, channel_name, time_index, forecast_index, val):
         """Write input data to NetCDF file."""
-        self.input_group[channel_name][time_index] = val
+        self.input_group[channel_name][time_index, forecast_index] = val
 
-    def write_truth(self, channel_name, time_index, val):
+    def write_truth(self, channel_name, time_index, forecast_index, val):
         """Write ground truth data to NetCDF file."""
-        self.truth_group[channel_name][time_index] = val
+        self.truth_group[channel_name][time_index, forecast_index] = val
 
-    def write_prediction(self, channel_name, time_index, ensemble_index, val):
+    def write_prediction(self, channel_name, time_index, forecast_index, ensemble_index, val):
         """Write prediction data to NetCDF file."""
-        self.prediction_group[channel_name][ensemble_index, time_index] = val
+        self.prediction_group[channel_name][ensemble_index, time_index, forecast_index] = val
 
     def write_time(self, time_index, time):
         """Write time information to NetCDF file."""
@@ -797,7 +801,6 @@ class NetCDFWriter:
         self._f["time"][time_index] = cftime.date2num(
             input_date, time_v.units, time_v.calendar
         )
-
 
 def writer_from_input_dataset(f, dataset):
     """Create a NetCDFWriter object from an input dataset."""

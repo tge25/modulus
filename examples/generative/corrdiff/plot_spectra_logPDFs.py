@@ -33,7 +33,7 @@ from scipy.signal import periodogram
 #path_intera5 = "s3://cwb-diffusions/baselines/era5/era5-cwb-v3/validation_big/samples.nc"
 #path_resdiff = "s3://cwb-diffusions/generations/era5-cwb-v3/validation_big/samples.zarr"
 #baslines_dir = "/lustre/fsw/nvresearch/nbrenowitz/diffusions/baselines/"
-path_rf = "/lustre/fsw/coreai_climate_earth2/corrdiff/inferences/twc_mvp_full1_0.nc"
+path_rf = "/lustre/fsw/coreai_climate_earth2/corrdiff/inferences/twc_mvp_v3_full1_0.nc"
 vars = ["u10m", "v10m", "t2m", "precip", "cat_snow", "cat_ice", "cat_freez", "cat_rain"]
 
 location_gefs_surface = "/lustre/fsw/coreai_climate_earth2/datasets/gefs/twc_mvp"
@@ -130,29 +130,20 @@ def load_windspeed_dist(data):
     bin_centers = 0.5 * (bin_edges[1:] + bin_edges[:-1])
     return bin_centers, pdf_values
 
-
 def load_dist(var, bins):
-    """Load the distribution of a variable."""
     if isinstance(var, xarray.DataArray):
         flattened_var = var.values.flatten()
     else:
         flattened_var = np.array(var).flatten()
-    flattened_var = flattened_var[flattened_var >= 0]
+    # flattened_var = flattened_var[flattened_var >= 0]
     flattened_var = flattened_var[~np.isnan(flattened_var)]
     pdf_values, bin_edges = np.histogram(flattened_var, bins=bins, density=True)
     bin_centers = 0.5 * (bin_edges[1:] + bin_edges[:-1])
     return bin_centers, pdf_values
 
-
 prediction_rf = open_data(path_rf, group="prediction")
 wrf = open_data(path_rf, group="truth")
 era5 = open_data(path_rf, group="input")
-
-# for mis-unnormalized inferences
-for i, var in enumerate(["u10m", "v10m", "t2m"]):
-    era5[var] = (era5[var] - stds_gefs_surface[i])/means_gefs_surface[i]
-    era5[var] = (era5[var] * stds_gefs_surface[i]) + means_gefs_surface[i]
-print("data opened")
 
 #prediction_rf = open_data(
 #    baslines_dir + "rf/era5-cwb-v3/validation_big/samples.nc", group="prediction"
@@ -195,7 +186,8 @@ era5_t2m_bins, era5_t2m_pdf = load_dist(era5.t2m, 30)
 
 print("t2m pdf done")
 
-bins = np.linspace(0, 5, 101)
+bins = np.exp(np.linspace(-5, 3, 101)) - np.exp(-5)
+print(bins,flush=True)
 rf_rad_bins, rf_rad_pdf = load_dist(prediction_rf.precip, bins)
 wrf_rad_bins, wrf_rad_pdf = load_dist(wrf.precip, bins)
 
@@ -247,7 +239,7 @@ ax2.annotate("(c)", xy=(-0.12, 1.05), xycoords="axes fraction", fontsize=12)
 ax2.loglog(wrf_rad_freq, wrf_rad_spec, label="HRRR", color=wong_palette[4], linewidth=5)
 ax2.loglog(rf_rad_freq, rf_rad_spec, label="Prediction", color=wong_palette[1], linewidth=1)
 ax2.set_xlabel("Zonal wavenumber (1/km)")
-ax2.set_ylabel("radar reflectivity spectra (dbz)")
+ax2.set_ylabel("precipitation (kg/m^2)")
 ax2.set_ylim(bottom=1e-1)
 ax2.spines["right"].set_visible(False)
 ax2.spines["top"].set_visible(False)
@@ -279,7 +271,7 @@ ax4.plot(
 )
 ax4.set_xlabel("10 meter windspeed (m/s)")
 ax4.set_ylabel("log(PDF)")
-ax4.set_xlim([0, 30])
+ax4.set_xlim([0, 32])
 ax4.spines["right"].set_visible(False)
 ax4.spines["top"].set_visible(False)
 
@@ -313,11 +305,11 @@ ax6.plot(
 ax6.plot(
     rf_rad_bins, np.log(rf_rad_pdf), label="rf", color=wong_palette[1], linewidth=1
 )
-ax6.set_xlabel("radar reflectivity (dbz)")
+ax6.set_xlabel("precipitation (kg/m^2)")
 ax6.set_ylabel("log(PDF)")
 ax6.spines["right"].set_visible(False)
 ax6.spines["top"].set_visible(False)
 
 
 plt.tight_layout()
-plt.savefig("./spectra_and_distributions_twc_mvp1.png")
+plt.savefig("./spectra_and_distributions_twc_mvp1_v3.png")

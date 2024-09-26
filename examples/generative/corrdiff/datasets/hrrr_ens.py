@@ -8,7 +8,7 @@ import os
 from typing import Iterable, Tuple, Union
 import cv2
 import s3fs
-
+import pandas as pd
 import dask
 import numpy as np
 import torch
@@ -72,6 +72,7 @@ class HrrrForecastGEFSDataset(DownscalingDataset):
         shard: bool = False,
         overfit: bool = False,
         use_all: bool = False,
+        ensemble: int = 0,
     ):
         dask.config.set(scheduler='synchronous') # for threadsafe multiworker dataloaders
         self.location_hrrr = location_hrrr
@@ -98,6 +99,7 @@ class HrrrForecastGEFSDataset(DownscalingDataset):
         self._get_files_stats()
         self.overfit = overfit
 
+        self.ensemble = ensemble
         self.kept_hrrr_channel_names = self._get_hrrr_channel_names()
         kept_hrrr_channels = [hrrr_stats_channels.index(x) for x in self.kept_hrrr_channel_names]
         means_file = os.path.join(self.location_hrrr, 'stats', 'means.npy')
@@ -135,7 +137,6 @@ class HrrrForecastGEFSDataset(DownscalingDataset):
         self.means_gefs_isobaric = np.load(means_file_isobaric)[kept_gefs_isobaric_channels, None, None]
         self.stds_gefs_isobaric = np.load(stds_file_isobaric)[kept_gefs_isobaric_channels, None, None]
 
-
     def _get_hrrr_channel_names(self):
         if self.hrrr_channels:
             kept_hrrr_channels = [x for x in self.hrrr_channels if x in self.base_hrrr_channels]
@@ -144,7 +145,7 @@ class HrrrForecastGEFSDataset(DownscalingDataset):
         else:
             kept_hrrr_channels = self.base_hrrr_channels
 
-        return list(kept_hrrr_channels) + ["cat_nonprecip"]
+        return list(kept_hrrr_channels)
 
     def _get_gefs_surface_channel_names(self):
         if self.gefs_surface_channels:
@@ -175,40 +176,26 @@ class HrrrForecastGEFSDataset(DownscalingDataset):
         '''
 
         # GEFS surface parsing
-        self.ds_gefs_surface = {}
-        if self.s3:
-            print("initializing input from s3")
-            gefs_surface_short_paths = self.s3.glob(os.path.join(self.location_gefs_surface.replace("s3://",""),'gefs_surface',"????.zarr"))
-            gefs_surface_paths = ["s3://" + path for path in gefs_surface_short_paths]
-        else:
-            gefs_surface_paths = glob.glob(os.path.join(self.location_gefs_surface, "*surface*.zarr"), recursive=True)
-        gefs_surface_years = [os.path.basename(x).replace('.zarr', '')[-10:] for x in gefs_surface_paths if "stats" not in x]
-        self.gefs_surface_paths = dict(zip(gefs_surface_years, gefs_surface_paths))
 
         # keep only training or validation years
+        self.ds_gefs_surface = {}
         years = self.train_years if self.train else self.valid_years
-        self.gefs_surface_paths = {year: path for (year, path) in self.gefs_surface_paths.items() if int(year[:4]) in years}
+        self.gefs_surface_paths = {"2024_01_07":"/lustre/fsw/coreai_climate_earth2/datasets/gefs/twc_mvp/valid/GEFS_surface_2.zarr"}
         self.n_years_surface = len(self.gefs_surface_paths)
-        first_key = list(self.gefs_surface_paths.keys())[0]
 
-        with xr.open_zarr(self.gefs_surface_paths[first_key], consolidated=True) as ds:
+        with xr.open_zarr(self.gefs_surface_paths["2024_01_07"], consolidated=True) as ds:
             self.base_gefs_surface_channels = list(ds.channel.values)
             self.gefs_surface_lat = ds.lat
             self.gefs_surface_lon = ds.lon%360
 
-        self.ds_gefs_isobaric = {}
-        gefs_isobaric_paths = [path.replace("surface", "isobaric") for path in gefs_surface_paths]
-        gefs_isobaric_years = [os.path.basename(x).replace('.zarr', '')[-10:] for x in gefs_isobaric_paths if "stats" not in x]
-        self.gefs_isobaric_paths = dict(zip(gefs_isobaric_years, gefs_isobaric_paths))
-
         # keep only training or validation years
+        self.ds_gefs_isobaric = {}
         years = self.train_years if self.train else self.valid_years
-        self.gefs_isobaric_paths = {year: path for (year, path) in self.gefs_isobaric_paths.items() if int(year[:4]) in years}
+        self.gefs_isobaric_paths = {"2024_01_07":"/lustre/fsw/coreai_climate_earth2/datasets/gefs/twc_mvp/valid/GEFS_isobaric_2.zarr"}
         self.n_years_surface = len(self.gefs_isobaric_paths)
-        first_key = list(self.gefs_isobaric_paths.keys())[0]
 
         #with xr.open_zarr(gefs_isobaric_paths[0], consolidated=True) as ds:
-        with xr.open_zarr(self.gefs_isobaric_paths[first_key], consolidated=True) as ds:
+        with xr.open_zarr(self.gefs_isobaric_paths["2024_01_07"], consolidated=True) as ds:
             self.base_gefs_isobaric_channels = list(ds.channel.values)
             self.gefs_isobaric_lat = ds.lat
             self.gefs_isobaric_lon = ds.lon%360
@@ -265,9 +252,9 @@ class HrrrForecastGEFSDataset(DownscalingDataset):
         else:
             first_sample = datetime(year=first_year, month=1, day=1, hour=0, minute=0, second=0)
         if last_year == 2024:
-            last_sample = datetime(year=2024, month=7, day=31, hour=19, minute=0, second=0)
+            last_sample = datetime(year=2024, month=12, day=31, hour=18, minute=0, second=0)
         else:
-            last_sample = datetime(year=last_year, month=12, day=31, hour=19, minute=0, second=0)
+            last_sample = datetime(year=last_year, month=12, day=31, hour=18, minute=0, second=0)
         
         logging.info("First sample is {}".format(first_sample)) 
         logging.info("Last sample is {}".format(last_sample))
@@ -307,15 +294,15 @@ class HrrrForecastGEFSDataset(DownscalingDataset):
         x = x.astype(np.float32)
         kept_gefs_channels = self.means_gefs_surface.shape[0]
         if (len(x.shape)==3) and self.normalize:           
-            x[:kept_gefs_channels] *= self.means_gefs_surface
-            x[:kept_gefs_channels] += self.stds_gefs_surface
-            x[kept_gefs_channels:] *= self.means_gefs_isobaric
-            x[kept_gefs_channels:] += self.stds_gefs_isobaric
+            x[:kept_gefs_channels] *= self.stds_gefs_surface
+            x[:kept_gefs_channels] += self.means_gefs_surface
+            x[kept_gefs_channels:] *= self.stds_gefs_isobaric
+            x[kept_gefs_channels:] += self.means_gefs_isobaric
         elif (len(x.shape)==4) and self.normalize:
-            x[:,:kept_gefs_channels] *= self.means_gefs_surface[None]
-            x[:,:kept_gefs_channels] += self.stds_gefs_surface[None]
-            x[:,kept_gefs_channels:] *= self.means_gefs_isobaric[None]
-            x[:,kept_gefs_channels:] += self.stds_gefs_isobaric[None]
+            x[:,:kept_gefs_channels] *= self.stds_gefs_surface[None]
+            x[:,:kept_gefs_channels] += self.means_gefs_surface[None]
+            x[:,kept_gefs_channels:] *= self.stds_gefs_isobaric[None]
+            x[:,kept_gefs_channels:] += self.means_gefs_isobaric[None]
         return x
 
     def _get_gefs_surface(self, ts, lat, lon):
@@ -338,7 +325,7 @@ class HrrrForecastGEFSDataset(DownscalingDataset):
         Retrieve GEFS isobaric samples from zarr files
         '''
         gefs_isobaric_handle = self._get_ds_handles(self.ds_gefs_isobaric, self.gefs_isobaric_paths, ts)
-        data = gefs_isobaric_handle.sel(time=ts, channel=self.kept_gefs_isobaric_channel_names)
+        data = gefs_isobaric_handle.sel(time=ts, ensemble=self.ensemble, channel=self.kept_gefs_isobaric_channel_names)
         data['x'] = data.lat.values[:,0]
         data['y'] = data.lon.values[0,:]%360
         gefs_isobaric_field = data.interp(x=lat, y=lon)["values"].values
@@ -375,8 +362,7 @@ class HrrrForecastGEFSDataset(DownscalingDataset):
         if (len(hrrr_field.shape) == 4):
             hrrr_field = hrrr_field[0]
         hrrr_field = self.normalize_output(hrrr_field)
-        hrrr_non_precip = 1 - np.bitwise_or.reduce(hrrr_field[4:, ], axis=0)
-        return np.concatenate((hrrr_field, hrrr_non_precip),axis=0)
+        return hrrr_field
 
     def image_shape(self) -> Tuple[int, int]:
         """Get the (height, width) of the data (same for input and output)."""
@@ -411,10 +397,10 @@ class HrrrForecastGEFSDataset(DownscalingDataset):
         if self.ds_factor > 1:
             gefs_surface_sample = self._create_lowres_(gefs_surface_sample, factor=self.ds_factor)
             gefs_isobaric_sample = self._create_lowres_(gefs_isobaric_sample, factor=self.ds_factor)
-        hrrr_sample = self._get_hrrr(time_index, crop_box=crop_box)
+        #hrrr_sample = self._get_hrrr(time_index, crop_box=crop_box)
         gefs_sample = np.concatenate((gefs_surface_sample, gefs_isobaric_sample), axis=0)    
         torch.cuda.nvtx.range_pop()
-        return hrrr_sample, gefs_sample, global_idx, int(time_index[-2:])//3
+        return torch.zeros(1), gefs_sample, global_idx, int(time_index[-2:])//3
 
     def _global_idx_to_datetime(self, global_idx):
         '''

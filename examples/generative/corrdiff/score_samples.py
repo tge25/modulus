@@ -52,7 +52,7 @@ try:
 except ImportError:
     raise ImportError("xskillscore not installed. Try `pip install xskillscore`")
 vars = ["u10m", "v10m", "t2m", "precip", "cat_snow", "cat_ice", "cat_freez", "cat_rain"]
-path = ["/lustre/fsw/coreai_climate_earth2/corrdiff/inferences/twc_mvp_full_pmean_m1p2_new1_0.nc", "/lustre/fsw/coreai_climate_earth2/corrdiff/inferences/twc_mvp_full_pmean_m1p2_new2_0.nc"]
+path = ["/lustre/fsw/coreai_climate_earth2/corrdiff/inferences/twc_mvp_v3_full1_0.nc", "/lustre/fsw/coreai_climate_earth2/corrdiff/inferences/twc_mvp_v3_full2_0.nc"]
 location_hrrr = "/lustre/fsw/coreai_climate_earth2/datasets/hrrr_forecast/twc_mvp"
 means_file = os.path.join(location_hrrr, 'stats', 'means.npy')
 stds_file = os.path.join(location_hrrr, 'stats', 'stds.npy')
@@ -124,7 +124,7 @@ def main(path: str, output: str, n_ensemble: int = -1):
             metric = process(i, path[0], n_ensemble)
             metrics[i%9].append(metric)
             sys.stderr.flush()        
-        print(metrics, flush=True)
+
         for i in range(0,9):
             metrics[i] = xr.concat(metrics[i], dim="time")
             metrics[i].attrs["n_ensemble"] = n_ensemble

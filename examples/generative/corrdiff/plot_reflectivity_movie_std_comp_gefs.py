@@ -64,14 +64,29 @@ output_name = "twc_mvp1_v3_schurn_p5"
 ds = xarray.open_dataset(path)
 lat = np.array(ds.variables["lat"])
 lon = np.array(ds.variables["lon"])
+print(lon)
 ds_prediction = xarray.open_dataset(path, group="prediction")
 ds_truth = xarray.open_dataset(path, group="truth")
 ds_input = xarray.open_dataset(path, group="input")
+print(ds_prediction)
 ds_prediction = ds_prediction.assign_coords(
     time=ds["time"], lat=ds["lat"], lon=ds["lon"]
 )
 ds_truth = ds_truth.assign_coords(time=ds["time"], lat=ds["lat"], lon=ds["lon"])
 ds_input = ds_input.assign_coords(time=ds["time"], lat=ds["lat"], lon=ds["lon"])
+
+ds_hrrr = xarray.open_zarr("/lustre/fsw/coreai_climate_earth2/datasets/hrrr_forecast/twc_mvp_valid/HRRR_forecasts_2024.zarr", consolidated=True)
+ds_gefs = xarray.open_zarr("/lustre/fsw/coreai_climate_earth2/datasets/gefs/twc_mvp_ens_valid/GEFS_surface_2024_winter_storm.zarr", consolidated=True)
+
+ds_gefs['x'] = ds_gefs.lat.values[:,0]
+ds_gefs['y'] = ds_gefs.lon.values[0,:]%360
+lat = ds_hrrr.lat
+lon = ds_hrrr.lon%360
+ds_gefs = ds_gefs.interp(x=lat, y=lon)
+print(lon.values)
+ds_hrrr = ds_hrrr.assign_coords(time=ds["time"], lat=ds_hrrr["lat"], lon=ds_hrrr["lon"])
+ds_gefs = ds_gefs.assign_coords(time=ds["time"], lat=ds_hrrr["lat"], lon=ds_hrrr["lon"])
+print(ds_gefs)
 
 dim = ["x", "y"]
 plt.rcParams.update({'font.size': 22})
@@ -82,20 +97,11 @@ sequential_cmap = plt.get_cmap("magma", 20)
 
 tic = time.time()
 for movie in range(0,2):
-    if movie == 0:
-        start = 0
-        end = len(time1)
-    elif movie == 1:
-        start = len(time1)
-        end = len(time1) + len(time2)
-    
-    for i in range(start, end):
+    for i in range(0, 6):
         plt.figure(figsize=(42, 30))
         plt.style.use('dark_background')
 
         var = "precip"
-        print(ds_truth[var][i, :, :].values)
-        exit(-1)
         ax = plt.subplot(nrows, ncolumns, 1, projection=ccrs.PlateCarree())
         gl = ax.gridlines(
             crs=ccrs.PlateCarree(),
@@ -114,7 +120,6 @@ for movie in range(0,2):
         crps_mean = xskillscore.crps_ensemble(
             ds_truth[var][i, :, :], ds_prediction[var].mean(dim="ensemble")[i, :, :].expand_dims("ensemble"), member_dim="ensemble", dim=dim
         )
-        
         plt.title("mean | MAE: %f"%crps_mean)
         plt.colorbar(im1, ax=ax, shrink=0.5)
         gl.right_labels = False

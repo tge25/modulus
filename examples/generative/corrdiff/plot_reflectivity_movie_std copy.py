@@ -33,18 +33,18 @@ time = ["2024011212f15", "2024011400f00", "2024011400f21", "2024030518f03",
         "2024070800f00", "2024070800f12", "2024071006f00", "2024030518f03",]
 '''
 
-time1 = ["2024012100f00","2024012100f03","2024012100f06","2024012100f09",
-         "2024012100f12","2024012100f15","2024012100f18","2024012100f21",
-         "2024012100f24","2024012200f00","2024012200f03","2024012200f06",
-         "2024012200f09","2024012200f12","2024012200f15",
+time1 = ["2024012000f00","2024012000f03","2024012000f06","2024012000f09",
+         "2024012000f12","2024012000f15","2024012000f18","2024012000f21",
+         "2024012000f24","2024012100f00","2024012100f03","2024012100f06",
+         "2024012100f09","2024012100f12","2024012100f15","2024012100f18",
+         "2024012100f21","2024012100f24","2024012200f00","2024012200f03",
+         "2024012200f06","2024012200f09","2024012200f12","2024012200f15",
          "2024012200f18","2024012200f21","2024012200f24","2024012300f00",
          "2024012300f03","2024012300f06","2024012300f09","2024012300f12",
          "2024012300f15","2024012300f18","2024012300f21","2024012300f24",
          "2024012400f00","2024012400f03","2024012400f06","2024012400f09",
          "2024012400f12","2024012400f15","2024012400f18","2024012400f21",
-         "2024012400f24","2024012500f00","2024012500f03","2024012500f06",
-         "2024012500f09","2024012500f12","2024012500f15","2024012500f18",
-         "2024012500f21","2024012500f24"]
+         "2024012400f24"]
 
 time2 = ["2024040300f00","2024040300f03","2024040300f06","2024040300f09",
          "2024040300f12","2024040300f15","2024040300f18","2024040300f21",
@@ -58,8 +58,8 @@ gefs_surface_channels = ["u10m", "v10m", "t2m", "q2m", "sp", "msl", "precipitabl
 gefs_isobaric_channels = ['u1000', 'u925', 'u850', 'u700', 'u500', 'u250', 'v1000', 'v925', 'v850', 'v700', 'v500', 'v250', 'z1000', 'z925', 'z850', 'z700', 'z500', 'z250', 't1000', 't925', 't850', 't700', 't500', 't250',  'q1000', 'q925', 'q850', 'q700', 'q500', 'q250']
 hrrr_stats_channels = ["u10m", "v10m", "t2m", "precip", "cat_snow", "cat_ice", "cat_freez", "cat_rain", "refc"]
 
-path = "/lustre/fsw/coreai_climate_earth2/corrdiff/inferences/twc_mvp_diffusion_v3_winter_storm1_0.nc" #"image_outdir_val_paper_plot_0.nc"
-output_name = "twc_mvp1_v3_schurn_p5"
+path = "/lustre/fsw/coreai_climate_earth2/corrdiff/inferences/twc_mvp_diffusion_v3_movie_0.nc" #"image_outdir_val_paper_plot_0.nc"
+output_name = "twc_mvp1_v3_schurn_p0_moive"
 
 ds = xarray.open_dataset(path)
 lat = np.array(ds.variables["lat"])
@@ -74,14 +74,14 @@ ds_truth = ds_truth.assign_coords(time=ds["time"], lat=ds["lat"], lon=ds["lon"])
 ds_input = ds_input.assign_coords(time=ds["time"], lat=ds["lat"], lon=ds["lon"])
 
 dim = ["x", "y"]
-plt.rcParams.update({'font.size': 22})
+plt.rcParams.update({'font.size': 20})
 nvars = 48 + 1
 ncolumns = 4
 nrows = 6
 sequential_cmap = plt.get_cmap("magma", 20)
 
 tic = time.time()
-for movie in range(0,2):
+for movie in range(1,2):
     if movie == 0:
         start = 0
         end = len(time1)
@@ -89,13 +89,11 @@ for movie in range(0,2):
         start = len(time1)
         end = len(time1) + len(time2)
     
-    for i in range(start, end):
-        plt.figure(figsize=(42, 30))
+    for i in range(26, end):
+        plt.figure(figsize=(36, 30))
         plt.style.use('dark_background')
 
         var = "precip"
-        print(ds_truth[var][i, :, :].values)
-        exit(-1)
         ax = plt.subplot(nrows, ncolumns, 1, projection=ccrs.PlateCarree())
         gl = ax.gridlines(
             crs=ccrs.PlateCarree(),
@@ -114,7 +112,6 @@ for movie in range(0,2):
         crps_mean = xskillscore.crps_ensemble(
             ds_truth[var][i, :, :], ds_prediction[var].mean(dim="ensemble")[i, :, :].expand_dims("ensemble"), member_dim="ensemble", dim=dim
         )
-        
         plt.title("mean | MAE: %f"%crps_mean)
         plt.colorbar(im1, ax=ax, shrink=0.5)
         gl.right_labels = False
@@ -721,7 +718,7 @@ for movie in range(0,2):
         ax.coastlines(linewidth=0.5, color="white")
         gl.left_labels = False
 
-        plt.suptitle(f"{times[i][:4]}-{times[i][4:6]}-{times[i][6:8]} {times[i][8:10]}:00 | lead time: {times[i][11:]} hours", fontsize=40)
+        plt.suptitle(f"{times[i][:4]}-{times[i][4:6]}-{times[i][6:8]} {times[i][8:10]}:00 | lead time: {times[i][11:]} hours", fontsize=35)
         plt.tight_layout()
         plt.savefig("./output_movie/reflectivity_movie%d.png"%i)
         plt.close()

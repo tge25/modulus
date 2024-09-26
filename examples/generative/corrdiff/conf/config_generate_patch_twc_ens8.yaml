@@ -20,13 +20,14 @@ hydra:
 
 
 ## Main options
-res_ckpt_filename: "/lustre/fsw/coreai_climate_earth2/corrdiff/training_output/diffusion_patch_twc_mvp1_2_mse/checkpoints/EDMPrecondSRV2.0.4224000.mdlus"   
+model_type: v3
+res_ckpt_filename: "/lustre/fsw/coreai_climate_earth2/corrdiff/training_output/diffusion_patch_twc_mvp1_2_mse2/checkpoints/EDMPrecondSRV2.0.5821440.mdlus"   
   # Checkpoint filename for the generative model  
 reg_ckpt_filename: "/lustre/fsw/coreai_climate_earth2/corrdiff/training_output/regression_twc_mvp1_2_correctEntropy/checkpoints/UNet.0.1960960.mdlus"
   # Checkpoint filename for the mean predictor model
-image_outdir: "/lustre/fsw/coreai_climate_earth2/corrdiff/inferences/twc_mvp_regression_crossentropy_2"
+image_outdir: "/lustre/fsw/coreai_climate_earth2/corrdiff/inferences/twc_mvp_v3_ens_twc_with_truth_ens8"
   # Where to save the output images
-seeds: "0-1"
+seeds: "0-7"
   # Random seeds used for generation
 class_idx: null  
   # Class label. Null is random
@@ -34,7 +35,7 @@ num_steps: 18
   # Number of sampling steps
 sample_res: "full"
   # Sampling resolution
-regression_only: true
+regression_only: false
   # regression only inference
 diffusion_only: false
   # diffusion only inference
@@ -52,7 +53,6 @@ use_torch_compile: False
   # whether to use torch.compile on the diffusion model
   # this will make the first time stamp generation very slow due to compilation overheads
   # but will significantly speed up subsequent inference runs
-inference_mode: regression
 
 ## Data options
 ## Data options
@@ -70,12 +70,28 @@ hr_mean_conditioning: true
 gridtype: "learnable"
 N_grid_channels: 100
 times:
-  # winter storm
-  - "2024011212f00"
+  - "2024011312f00"
+  - "2024011312f03"
+  - "2024011312f06"
+  - "2024011312f09"
+  - "2024011312f12"
+  - "2024011312f15"
+  - "2024011312f18"
+  - "2024011312f21"
+  - "2024011312f24"
+  - "2024053012f00"
+  - "2024053012f03"
+  - "2024053012f06"
+  - "2024053012f09"
+  - "2024053012f12"
+  - "2024053012f15"
+  - "2024053012f18"
+  - "2024053012f21"
+  - "2024053012f24"
 
 ## Weather data options
 dataset:
-  type: "twc_mvp1"
+  type: "twc_mvp1_ens"
   ds_factor: 4
   train: False
   train_years: [2020, 2021, 2022, 2023,]
@@ -83,6 +99,7 @@ dataset:
   hrrr_window: [[1,1057], [4,1796]] # need dims to be divisible by 16 [[0,1024], [0,1024]]
   sample_shape: null #[1024, 1024] # 1024,1024 w/ 1 batch 4 hrrr channels and all era5 channels is 77gb
   train_test_split: False
+  ensemble: 8
   
 
 ## Deterministic sampler options
@@ -100,7 +117,7 @@ schedule: "linear"
   # noise schedule sigma(t) [vp, ve, linear]
 scaling: null
   # Signal scaling s(t) [vp, none]
-S_churn: 0
+S_churn: 0.2
   # Stochasticity strength
 S_min: 0
   # Stochasticity min noise level

@@ -182,7 +182,7 @@ class HrrrForecastGEFSDataset(DownscalingDataset):
             stats, self.output_variables, "output"
         )
         self.prob_channel_index = [
-            self.output_variables.index(prob_channel)
+            self.output_variables_load.index(prob_channel)
             for prob_channel in self.prob_channels
         ]
 

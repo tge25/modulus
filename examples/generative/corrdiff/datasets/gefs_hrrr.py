@@ -182,7 +182,7 @@ class HrrrForecastGEFSDataset(DownscalingDataset):
             stats, self.output_variables, "output"
         )
         self.prob_channel_index = [
-            self.output_variables_load.index(prob_channel)
+            self.output_variables.index(prob_channel)
             for prob_channel in self.prob_channels
         ]
 
@@ -451,10 +451,10 @@ class HrrrForecastGEFSDataset(DownscalingDataset):
         )
         hrrr_non_precip = (is_precip == 0).astype(float)
         hrrr_field = np.concatenate((hrrr_field, hrrr_non_precip), axis=0)
-        _channel_index = self._channel_index + [hrrr_field.shape[0] - 1]
+        prob_channel_index = self.prob_channel_index + [hrrr_field.shape[0] - 1]
         hrrr_field[prob_channel_index] = hrrr_field[prob_channel_index] / np.sum(
             hrrr_field[
-                _channel_index,
+                prob_channel_index,
             ],
             axis=0,
             keepdims=True,
@@ -562,7 +562,7 @@ class HrrrForecastGEFSDataset(DownscalingDataset):
         """
         Get prob_channel_index list one more dimension
         """
-        return self.prob_channel_index
+        return self.prob_channel_index + [len(self.output_variables)-1]
 
     def input_channels(self):
         return [ChannelMetadata(name=n) for n in self.input_variables]

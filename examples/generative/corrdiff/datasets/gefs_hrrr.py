@@ -36,69 +36,7 @@ from typing import List, Tuple, Union
 from .base import ChannelMetadata, DownscalingDataset
 import json
 import copy
-
-"""
-TO DO LIST:
-missing samples file
-mean and std
-"""
-
-
 import nvtx
-
-hrrr_stats_channels = [
-    "u10m",
-    "v10m",
-    "t2m",
-    "precip",
-    "cat_snow",
-    "cat_ice",
-    "cat_freez",
-    "cat_rain",
-    "refc",
-]
-gefs_surface_channels = [
-    "u10m",
-    "v10m",
-    "t2m",
-    "q2m",
-    "sp",
-    "msl",
-    "precipitable_water",
-]
-gefs_isobaric_channels = [
-    "u1000",
-    "u925",
-    "u850",
-    "u700",
-    "u500",
-    "u250",
-    "v1000",
-    "v925",
-    "v850",
-    "v700",
-    "v500",
-    "v250",
-    "z1000",
-    "z925",
-    "z850",
-    "z700",
-    "z500",
-    "z200",
-    "t1000",
-    "t925",
-    "t850",
-    "t700",
-    "t500",
-    "t100",
-    "r1000",
-    "r925",
-    "r850",
-    "r700",
-    "r500",
-    "r100",
-]
-
 
 def convert_datetime_to_cftime(
     time: datetime, cls=cftime.DatetimeGregorian
@@ -139,8 +77,8 @@ class HrrrForecastGEFSDataset(DownscalingDataset):
         prob_variables: Union[List[str], None] = None,
         train: bool = True,
         normalize: bool = True,
-        train_years: Iterable[int] = (2020, 2021, 2022, 2023),
-        valid_years: Iterable[int] = (2024,),
+        train_years: Iterable[int] = None,
+        valid_years: Iterable[int] = None,
         hrrr_window: Union[Tuple[Tuple[int, int], Tuple[int, int]], None] = None,
         sample_shape: Tuple[int, int] = None,
         ds_factor: int = 1,
@@ -235,7 +173,7 @@ class HrrrForecastGEFSDataset(DownscalingDataset):
         first_key = list(self.gefs_surface_paths.keys())[0]
 
         with xr.open_zarr(self.gefs_surface_paths[first_key], consolidated=True) as ds:
-            self.base_gefs_surface_channels = list(ds.channel.values)
+            self.base_ = list(ds.channel.values)
             self.gefs_surface_lat = ds.lat
             self.gefs_surface_lon = ds.lon % 360
 

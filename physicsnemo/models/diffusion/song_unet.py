@@ -728,7 +728,7 @@ class SongUNetPosEmbd(SongUNet):
                 # Select positional embeddings with a selector function
                 if embedding_selector is not None:
                     selected_pos_embd = self.positional_embedding_selector(
-                        x, embedding_selector
+                        x, embedding_selector, lead_time_label=lead_time_label
                     )
                 # Select positional embeddings using global indices (selects all
                 # embeddings if global_index is None)
@@ -744,7 +744,7 @@ class SongUNetPosEmbd(SongUNet):
                 # if training mode, let crossEntropyLoss do softmax. The model outputs logits.
                 # if eval mode, the model outputs probability
                 out_final = out.clone()
-                if out.dtype != self.scalar.dtype:
+                if self.prob_channels and out.dtype != self.scalar.dtype:
                     self.scalar.data = self.scalar.data.to(out.dtype)
                 if self.prob_channels and (not self.training):
                     out_final[:, self.prob_channels] = (
@@ -895,6 +895,7 @@ class SongUNetPosEmbd(SongUNet):
         self,
         x: torch.Tensor,
         embedding_selector: Callable[[torch.Tensor], torch.Tensor],
+        lead_time_label: int = None,
     ) -> torch.Tensor:
         """Select positional embeddings using a selector function.
 
@@ -943,8 +944,14 @@ class SongUNetPosEmbd(SongUNet):
         """
         if x.dtype != self.pos_embd.dtype:
             self.pos_embd = self.pos_embd.to(x.dtype)
-
-        return embedding_selector(self.pos_embd)  # (B, N_pe, H, W)
+        if lead_time_label is not None:
+            # all patches share same lead_time_label
+            embeddings = torch.cat(
+                [self.pos_embd, self.lt_embd[lead_time_label[0].int()]]
+            )
+        else:
+            embeddings = self.pos_embd
+        return embedding_selector(embeddings)  # (B, N_pe, H, W)
 
     def _get_positional_embedding(self):
         if self.N_grid_channels == 0:

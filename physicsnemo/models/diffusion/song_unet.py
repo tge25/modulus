@@ -392,9 +392,11 @@ class SongUNet(Module):
                 )
 
     def forward(self, x, noise_labels, class_labels, augment_labels=None):
-        with nvtx.annotate(
-            message="SongUNet", color="blue"
-        ) if self.profile_mode else contextlib.nullcontext():
+        with (
+            nvtx.annotate(message="SongUNet", color="blue")
+            if self.profile_mode
+            else contextlib.nullcontext()
+        ):
             if self.embedding_type != "zero":
                 # Mapping.
                 emb = self.map_noise(noise_labels)
@@ -424,9 +426,11 @@ class SongUNet(Module):
             skips = []
             aux = x
             for name, block in self.enc.items():
-                with nvtx.annotate(
-                    f"SongUNet encoder: {name}", color="blue"
-                ) if self.profile_mode else contextlib.nullcontext():
+                with (
+                    nvtx.annotate(f"SongUNet encoder: {name}", color="blue")
+                    if self.profile_mode
+                    else contextlib.nullcontext()
+                ):
                     if "aux_down" in name:
                         aux = block(aux)
                     elif "aux_skip" in name:
@@ -456,9 +460,11 @@ class SongUNet(Module):
             aux = None
             tmp = None
             for name, block in self.dec.items():
-                with nvtx.annotate(
-                    f"SongUNet decoder: {name}", color="blue"
-                ) if self.profile_mode else contextlib.nullcontext():
+                with (
+                    nvtx.annotate(f"SongUNet decoder: {name}", color="blue")
+                    if self.profile_mode
+                    else contextlib.nullcontext()
+                ):
                     if "aux_up" in name:
                         aux = block(aux)
                     elif "aux_norm" in name:
@@ -703,9 +709,11 @@ class SongUNetPosEmbd(SongUNet):
         augment_labels=None,
         lead_time_label=None,
     ):
-        with nvtx.annotate(
-            message="SongUNetPosEmbd", color="blue"
-        ) if self.profile_mode else contextlib.nullcontext():
+        with (
+            nvtx.annotate(message="SongUNetPosEmbd", color="blue")
+            if self.profile_mode
+            else contextlib.nullcontext()
+        ):
             if embedding_selector is not None and global_index is not None:
                 raise ValueError(
                     "Cannot provide both embedding_selector and global_index. "
@@ -735,30 +743,18 @@ class SongUNetPosEmbd(SongUNet):
             if self.lead_time_mode:
                 # if training mode, let crossEntropyLoss do softmax. The model outputs logits.
                 # if eval mode, the model outputs probability
-                all_channels = list(range(out.shape[1]))  # [0, 1, 2, ..., 10]
-                scalar_channels = [
-                    item for item in all_channels if item not in self.prob_channels
-                ]
+                out_final = out.clone()
+                if out.dtype != self.scalar.dtype:
+                    self.scalar.data = self.scalar.data.to(out.dtype)
                 if self.prob_channels and (not self.training):
-                    out_final = torch.cat(
-                        (
-                            out[:, scalar_channels],
-                            (out[:, self.prob_channels] * self.scalar).softmax(dim=1),
-                        ),
-                        dim=1,
-                    )
+                    out_final[:, self.prob_channels] = (
+                        out[:, self.prob_channels] * self.scalar
+                    ).softmax(dim=1)
                 elif self.prob_channels and self.training:
-                    out_final = torch.cat(
-                        (
-                            out[:, scalar_channels],
-                            (out[:, self.prob_channels] * self.scalar),
-                        ),
-                        dim=1,
+                    out_final[:, self.prob_channels] = (
+                        out[:, self.prob_channels] * self.scalar
                     )
-                else:
-                    out_final = out
                 return out_final
-
             return out
 
     def positional_embedding_indexing(

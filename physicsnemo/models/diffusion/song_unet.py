@@ -743,18 +743,16 @@ class SongUNetPosEmbd(SongUNet):
             if self.lead_time_mode:
                 # if training mode, let crossEntropyLoss do softmax. The model outputs logits.
                 # if eval mode, the model outputs probability
-                out_final = out.clone()
                 if self.prob_channels and out.dtype != self.scalar.dtype:
                     self.scalar.data = self.scalar.data.to(out.dtype)
                 if self.prob_channels and (not self.training):
-                    out_final[:, self.prob_channels] = (
+                    out[:, self.prob_channels] = (
                         out[:, self.prob_channels] * self.scalar
                     ).softmax(dim=1)
                 elif self.prob_channels and self.training:
-                    out_final[:, self.prob_channels] = (
+                    out[:, self.prob_channels] = (
                         out[:, self.prob_channels] * self.scalar
                     )
-                return out_final
             return out
 
     def positional_embedding_indexing(
@@ -895,7 +893,7 @@ class SongUNetPosEmbd(SongUNet):
         self,
         x: torch.Tensor,
         embedding_selector: Callable[[torch.Tensor], torch.Tensor],
-        lead_time_label: int = None,
+        lead_time_label=None,
     ) -> torch.Tensor:
         """Select positional embeddings using a selector function.
 
@@ -920,12 +918,17 @@ class SongUNetPosEmbd(SongUNet):
             maintain consistency with patch extraction.
         embeds : Optional[torch.Tensor]
             Optional tensor for combined positional and lead time embeddings tensor
+        lead_time_label : List[int] or torch.Tensor, optional
+            If provided, this list of integers is used to generate lead-time-aware positional embeddings.
+            Each integer represents a lead time index, and the corresponding embeddings are generated and
+            concatenated with the positional embedding. The combined embedding is then produced by
+            `embedding_selector`.
 
         Returns
         -------
         torch.Tensor
-            Selected positional embeddings with shape (B, N_pe, H, W)
-            where N_pe is the number of positional embedding channels.
+            A tensor of shape (batch_size, N_pe, H, W). N_pe is the number of positional embedding channels,
+            which may include additional lead-time embedding channels if `lead_time_label` is provided.
 
         Example
         -------

@@ -379,6 +379,7 @@ class RegressionLoss:
         net: torch.nn.Module,
         img_clean: torch.Tensor,
         img_lr: torch.Tensor,
+        lead_time_label: Optional[torch.Tensor] = None,
         augment_pipe: Optional[
             Callable[[torch.Tensor], Tuple[torch.Tensor, Optional[torch.Tensor]]]
         ] = None,
@@ -409,6 +410,10 @@ class RegressionLoss:
         img_lr : torch.Tensor
             Low-resolution input images of shape (B, C_lr, H, W).
             Used as input to the neural network.
+
+        lead_time_label : Optional[torch.Tensor], optional
+            Lead time labels for temporal predictions, by default None.
+            Shape can vary based on model requirements, typically (B,) or scalar.
 
         augment_pipe : callable, optional
             An optional data augmentation function.
@@ -441,7 +446,24 @@ class RegressionLoss:
         y_lr = y_tot[:, img_clean.shape[1] :, :, :]
 
         zero_input = torch.zeros_like(y, device=img_clean.device)
-        D_yn = net(zero_input, y_lr, force_fp32=False, augment_labels=augment_labels)
+
+        if lead_time_label is not None:
+            D_yn = net(
+                zero_input,
+                y_lr,
+                force_fp32=False,
+                lead_time_label=lead_time_label,
+                augment_labels=augment_labels,
+            )
+        else:
+            D_yn = net(
+                zero_input,
+                y_lr,
+                force_fp32=False,
+                lead_time_label=lead_time_label,
+                augment_labels=augment_labels,
+            )
+
         loss = weight * ((D_yn - y) ** 2)
 
         return loss
@@ -728,9 +750,11 @@ class ResidualLoss:
                 y_lr,
                 sigma,
                 embedding_selector=None,
-                global_index=patching.global_index(batch_size, img_clean.device)
-                if patching is not None
-                else None,
+                global_index=(
+                    patching.global_index(batch_size, img_clean.device)
+                    if patching is not None
+                    else None
+                ),
                 lead_time_label=lead_time_label,
                 augment_labels=augment_labels,
             )
@@ -740,9 +764,11 @@ class ResidualLoss:
                 y_lr,
                 sigma,
                 embedding_selector=None,
-                global_index=patching.global_index(batch_size, img_clean.device)
-                if patching is not None
-                else None,
+                global_index=(
+                    patching.global_index(batch_size, img_clean.device)
+                    if patching is not None
+                    else None
+                ),
                 augment_labels=augment_labels,
             )
         loss = weight * ((D_yn - y) ** 2)

@@ -342,9 +342,6 @@ def main(cfg: DictConfig) -> None:
                 )
                 image_tar = image_tar.to(device=device).to(torch.float32)
                 image_out = generate_fn()
-                print(
-                    torch.sqrt(torch.mean((image_out - image_tar) ** 2, dim=(0, 2, 3)))
-                )
                 if dist.rank == 0:
                     batch_size = image_out.shape[0]
                     # write out data in a seperate thread so we don't hold up inferencing

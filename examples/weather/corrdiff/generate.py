@@ -169,15 +169,12 @@ def main(cfg: DictConfig) -> None:
 
     # Partially instantiate the sampler based on the configs
     if cfg.sampler.type == "deterministic":
-        if cfg.generation.hr_mean_conditioning:
-            raise NotImplementedError(
-                "High-res mean conditioning is not yet implemented for the deterministic sampler"
-            )
         sampler_fn = partial(
             deterministic_sampler,
             num_steps=cfg.sampler.num_steps,
             # num_ensembles=cfg.generation.num_ensembles,
             solver=cfg.sampler.solver,
+            patching=patching,
         )
     elif cfg.sampler.type == "stochastic":
         sampler_fn = partial(stochastic_sampler, patching=patching)
@@ -345,6 +342,9 @@ def main(cfg: DictConfig) -> None:
                 )
                 image_tar = image_tar.to(device=device).to(torch.float32)
                 image_out = generate_fn()
+                print(
+                    torch.sqrt(torch.mean((image_out - image_tar) ** 2, dim=(0, 2, 3)))
+                )
                 if dist.rank == 0:
                     batch_size = image_out.shape[0]
                     # write out data in a seperate thread so we don't hold up inferencing

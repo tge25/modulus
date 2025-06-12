@@ -59,6 +59,7 @@ arbitrary positioning of probabilistic variables
 - Enable lead time aware regression without CE loss
 - Bumped minimum PyTorch version from 2.0.0 to 2.4.0, to minimize
   support surface for `physicsnemo.distributed` functionality.
+- Patch-based inference support with deterministic sampler
 
 ### Dependencies
 

@@ -224,3 +224,146 @@ def test_deterministic_sampler_correctness(pytestconfig):
     assert torch.allclose(
         x_final, analytical_solution, rtol=1e-2, atol=1e-2
     ), f"Numerical solution {x_final.item():.6f} does not match analytical solution {analytical_solution.item():.6f}"
+
+
+# Mock network class with embedding_selector
+class MockNet_embedding_selector:
+    def __init__(self, sigma_min=0.1, sigma_max=1000):
+        self.sigma_min = sigma_min
+        self.sigma_max = sigma_max
+
+    def round_sigma(self, t):
+        return t
+
+    def __call__(
+        self,
+        x,
+        x_lr,
+        t,
+        class_labels,
+        global_index=None,
+        embedding_selector=None,
+    ) -> torch.Tensor:
+        # Mock behavior: return input tensor for testing purposes
+        return x * 0.9
+
+
+# The test function for patch-based deterministic_sampler
+@import_or_fail("cftime")
+def test_deterministic_sampler_args(pytestconfig):
+
+    from physicsnemo.utils.generative import deterministic_sampler
+
+    net = MockNet_embedding_selector()
+    latents = torch.randn(2, 3, 448, 448)  # Mock latents
+    img_lr = torch.randn(2, 3, 112, 112)  # Mock low-res image
+
+    # Basic sampler functionality test
+    result = deterministic_sampler(
+        net=net,
+        latents=latents,
+        img_lr=img_lr,
+        patching=None,
+        mean_hr=None,
+    )
+
+    assert result.shape == latents.shape, "Output shape does not match expected shape"
+
+    # Test with mean_hr conditioning
+    mean_hr = torch.randn(2, 3, 112, 112)
+    result_mean_hr = deterministic_sampler(
+        net=net,
+        latents=latents,
+        img_lr=img_lr,
+        patching=None,
+        mean_hr=mean_hr,
+        num_steps=2,
+    )
+
+    assert (
+        result_mean_hr.shape == latents.shape
+    ), "Mean HR conditioned output shape does not match expected shape"
+
+
+# The test function for edm_sampler with rectangular domain and patching
+@import_or_fail("cftime")
+def test_deterministic_sampler_rectangle_patching(pytestconfig):
+    from physicsnemo.utils.generative import deterministic_sampler
+    from physicsnemo.utils.patching import GridPatching2D
+
+    net = MockNet_embedding_selector()
+
+    img_shape_y, img_shape_x = 256, 64
+    patch_shape_y, patch_shape_x = 16, 10
+
+    latents = torch.randn(2, 3, img_shape_y, img_shape_x)  # Mock latents
+    img_lr = torch.randn(2, 3, img_shape_y, img_shape_x)  # Mock low-res image
+
+    # Test with patching
+    patching = GridPatching2D(
+        img_shape=(img_shape_y, img_shape_x),
+        patch_shape=(patch_shape_y, patch_shape_x),
+        overlap_pix=4,
+        boundary_pix=2,
+    )
+
+    # Test with mean_hr conditioning
+    mean_hr = torch.randn(2, 3, img_shape_y, img_shape_x)
+    result_mean_hr = deterministic_sampler(
+        net=net,
+        latents=latents,
+        img_lr=img_lr,
+        patching=patching,
+        mean_hr=mean_hr,
+        num_steps=2,
+    )
+
+    assert (
+        result_mean_hr.shape == latents.shape
+    ), "Mean HR conditioned output shape does not match expected shape"
+
+
+# Mock network class with lead_time_embedding
+class MockNet_lead_time_embedding:
+    def __init__(self, sigma_min=0.1, sigma_max=1000):
+        self.sigma_min = sigma_min
+        self.sigma_max = sigma_max
+
+    def round_sigma(self, t):
+        return t
+
+    def __call__(
+        self,
+        x,
+        x_lr,
+        t,
+        class_labels,
+        lead_time_label=None,
+        global_index=None,
+        embedding_selector=None,
+    ) -> torch.Tensor:
+        # Mock behavior: return input tensor for testing purposes
+        return x
+
+
+# The test function for patch-based deterministic_sampler with lead_time_embedding
+@import_or_fail("cftime")
+def test_deterministic_sampler_lead_time(pytestconfig):
+
+    from physicsnemo.utils.generative import deterministic_sampler
+
+    net = MockNet_lead_time_embedding()
+    latents = torch.randn(2, 3, 448, 448)  # Mock latents
+    img_lr = torch.randn(2, 3, 112, 112)  # Mock low-res image
+
+    # Basic sampler functionality test
+    result = deterministic_sampler(
+        net=net,
+        latents=latents,
+        img_lr=img_lr,
+        patching=None,
+        mean_hr=torch.ones_like(img_lr),
+        lead_time_label=[0],
+    )
+
+    assert result.shape == latents.shape, "Output shape does not match expected shape"

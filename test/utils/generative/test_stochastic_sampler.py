@@ -251,3 +251,49 @@ def test_stochastic_sampler_patching_differentiable(device, pytestconfig):
     assert d.grad is not None
     assert e.grad is not None
     assert f.grad is not None
+
+
+# Mock network class with lead_time_embedding
+class MockNet_lead_time_embedding:
+    def __init__(self, sigma_min=0.1, sigma_max=1000):
+        self.sigma_min = sigma_min
+        self.sigma_max = sigma_max
+
+    def round_sigma(self, t):
+        return t
+
+    def __call__(
+        self,
+        x,
+        x_lr,
+        t,
+        class_labels,
+        lead_time_label=None,
+        global_index=None,
+        embedding_selector=None,
+    ) -> torch.Tensor:
+        # Mock behavior: return input tensor for testing purposes
+        return x
+
+
+# The test function for patch-based stochastic sampler with lead_time_embedding
+@import_or_fail("cftime")
+def test_stochastic_sampler_args(pytestconfig):
+
+    from physicsnemo.utils.generative import stochastic_sampler
+
+    net = MockNet_lead_time_embedding()
+    latents = torch.randn(2, 3, 448, 448)  # Mock latents
+    img_lr = torch.randn(2, 3, 112, 112)  # Mock low-res image
+
+    # Basic sampler functionality test
+    result = stochastic_sampler(
+        net=net,
+        latents=latents,
+        img_lr=img_lr,
+        patching=None,
+        mean_hr=torch.ones_like(img_lr),
+        lead_time_label=[0],
+    )
+
+    assert result.shape == latents.shape, "Output shape does not match expected shape"

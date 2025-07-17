@@ -198,6 +198,10 @@ def stochastic_sampler(
     else:
         patch_embedding_selector = None
 
+    optional_args = {}
+    if lead_time_label is not None:
+        optional_args["lead_time_label"] = lead_time_label
+
     # Main sampling loop.
     x_next = latents.to(torch.float64) * t_steps[0]
     for i, (t_cur, t_next) in enumerate(zip(t_steps[:-1], t_steps[1:])):  # 0, ..., N-1
@@ -217,23 +221,15 @@ def stochastic_sampler(
         )
         x_lr = x_lr.to(latents.device)
 
-        if lead_time_label is not None:
-            denoised = net(
-                x_hat_batch,
-                x_lr,
-                t_hat,
-                class_labels,
-                lead_time_label=lead_time_label,
-                embedding_selector=patch_embedding_selector,
-            ).to(torch.float64)
-        else:
-            denoised = net(
-                x_hat_batch,
-                x_lr,
-                t_hat,
-                class_labels,
-                embedding_selector=patch_embedding_selector,
-            ).to(torch.float64)
+        denoised = net(
+            x_hat_batch,
+            x_lr,
+            t_hat,
+            class_labels,
+            embedding_selector=patch_embedding_selector,
+            **optional_args,
+        ).to(torch.float64)
+
         if patching:
             # Un-patch the denoised image
             # (batch_size, C_out, img_shape_y, img_shape_x)
@@ -250,23 +246,15 @@ def stochastic_sampler(
                 latents.device
             )
 
-            if lead_time_label is not None:
-                denoised = net(
-                    x_next_batch,
-                    x_lr,
-                    t_next,
-                    class_labels,
-                    lead_time_label=lead_time_label,
-                    embedding_selector=patch_embedding_selector,
-                ).to(torch.float64)
-            else:
-                denoised = net(
-                    x_next_batch,
-                    x_lr,
-                    t_next,
-                    class_labels,
-                    embedding_selector=patch_embedding_selector,
-                ).to(torch.float64)
+            denoised = net(
+                x_next_batch,
+                x_lr,
+                t_next,
+                class_labels,
+                embedding_selector=patch_embedding_selector,
+                **optional_args,
+            ).to(torch.float64)
+
             if patching:
                 # Un-patch the denoised image
                 # (batch_size, C_out, img_shape_y, img_shape_x)

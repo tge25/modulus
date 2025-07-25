@@ -19,6 +19,8 @@ import pytest
 import torch
 from pytest_utils import import_or_fail
 
+from physicsnemo.models.diffusion.preconditioning import EDMPrecondSuperResolution
+
 
 # Mock a minimal net class for testing
 class MockNet:
@@ -226,26 +228,42 @@ def test_deterministic_sampler_correctness(pytestconfig):
     ), f"Numerical solution {x_final.item():.6f} does not match analytical solution {analytical_solution.item():.6f}"
 
 
-# Mock network class with embedding_selector
-class MockNet_embedding_selector:
-    def __init__(self, sigma_min=0.1, sigma_max=1000):
-        self.sigma_min = sigma_min
-        self.sigma_max = sigma_max
-
-    def round_sigma(self, t):
-        return t
-
-    def __call__(
-        self,
-        x,
-        x_lr,
-        t,
-        class_labels,
-        global_index=None,
-        embedding_selector=None,
-    ) -> torch.Tensor:
-        # Mock behavior: return input tensor for testing purposes
-        return x * 0.9
+def setup_model_learnable_embd(img_resolution, C_x, C_cond, global_lr=False, seed=0):
+    """
+    Create a model with similar architecture to CorrDiff (learnable positional
+    embeddings, self-attention, learnable lead time embeddings).
+    """
+    # Smaller architecture variant with learnable positional embeddings
+    # (similar to CorrDiff example)
+    N_pos = 20
+    lt_steps = 9
+    lt_channels = 4
+    attn_res = (
+        img_resolution[0] // 4
+        if isinstance(img_resolution, list) or isinstance(img_resolution, tuple)
+        else img_resolution // 4
+    )
+    torch.manual_seed(seed)
+    if global_lr:
+        img_in_channels = C_x + N_pos + C_cond * 2 + lt_channels
+    else:
+        img_in_channels = C_x + N_pos + C_cond + lt_channels
+    model = EDMPrecondSuperResolution(
+        img_resolution=img_resolution,
+        img_in_channels=img_in_channels,
+        img_out_channels=C_x,
+        model_channels=16,
+        channel_mult=[1, 2, 2],
+        channel_mult_emb=2,
+        num_blocks=2,
+        attn_resolutions=[attn_res],
+        gridtype="learnable",
+        lead_time_mode=True,
+        N_grid_channels=N_pos,
+        lead_time_steps=lt_steps,
+        lead_time_channels=lt_channels,
+    )
+    return model
 
 
 # The test function for patch-based deterministic_sampler
@@ -254,23 +272,13 @@ def test_deterministic_sampler_args(pytestconfig):
 
     from physicsnemo.utils.generative import deterministic_sampler
 
-    net = MockNet_embedding_selector()
-    latents = torch.randn(2, 3, 448, 448)  # Mock latents
-    img_lr = torch.randn(2, 3, 112, 112)  # Mock low-res image
+    latents = torch.randn(1, 3, 448, 448)  # Mock latents
+    img_lr = torch.randn(1, 3, 448, 448)  # Mock low-res image
 
-    # Basic sampler functionality test
-    result = deterministic_sampler(
-        net=net,
-        latents=latents,
-        img_lr=img_lr,
-        patching=None,
-        mean_hr=None,
-    )
-
-    assert result.shape == latents.shape, "Output shape does not match expected shape"
+    net = setup_model_learnable_embd((448, 448), C_x=3, C_cond=3)
 
     # Test with mean_hr conditioning
-    mean_hr = torch.randn(2, 3, 112, 112)
+    mean_hr = torch.randn(1, 3, 448, 448)
     result_mean_hr = deterministic_sampler(
         net=net,
         latents=latents,
@@ -278,6 +286,7 @@ def test_deterministic_sampler_args(pytestconfig):
         patching=None,
         mean_hr=mean_hr,
         num_steps=2,
+        lead_time_label=torch.tensor([1]),
     )
 
     assert (
@@ -291,10 +300,12 @@ def test_deterministic_sampler_rectangle_patching(pytestconfig):
     from physicsnemo.utils.generative import deterministic_sampler
     from physicsnemo.utils.patching import GridPatching2D
 
-    net = MockNet_embedding_selector()
-
     img_shape_y, img_shape_x = 256, 64
-    patch_shape_y, patch_shape_x = 16, 10
+    patch_shape_y, patch_shape_x = 32, 16
+
+    net = setup_model_learnable_embd(
+        (img_shape_y, img_shape_x), C_x=3, C_cond=3, global_lr=True
+    )
 
     latents = torch.randn(2, 3, img_shape_y, img_shape_x)  # Mock latents
     img_lr = torch.randn(2, 3, img_shape_y, img_shape_x)  # Mock low-res image
@@ -316,6 +327,7 @@ def test_deterministic_sampler_rectangle_patching(pytestconfig):
         patching=patching,
         mean_hr=mean_hr,
         num_steps=2,
+        lead_time_label=torch.tensor([1]),
     )
 
     assert (
@@ -323,47 +335,73 @@ def test_deterministic_sampler_rectangle_patching(pytestconfig):
     ), "Mean HR conditioned output shape does not match expected shape"
 
 
-# Mock network class with lead_time_embedding
-class MockNet_lead_time_embedding:
-    def __init__(self, sigma_min=0.1, sigma_max=1000):
-        self.sigma_min = sigma_min
-        self.sigma_max = sigma_max
-
-    def round_sigma(self, t):
-        return t
-
-    def __call__(
-        self,
-        x,
-        x_lr,
-        t,
-        class_labels,
-        lead_time_label=None,
-        global_index=None,
-        embedding_selector=None,
-    ) -> torch.Tensor:
-        # Mock behavior: return input tensor for testing purposes
-        return x
-
-
-# The test function for patch-based deterministic_sampler with lead_time_embedding
+# Test that the stochastic sampler is differentiable with rectangular patching
+# (tests differentiation through the patching and fusing)
 @import_or_fail("cftime")
-def test_deterministic_sampler_lead_time(pytestconfig):
+@pytest.mark.parametrize("device", ["cuda:0", "cpu"])
+def test_stochastic_sampler_patching_differentiable(device, pytestconfig):
+    from physicsnemo.utils.diffusion import stochastic_sampler
+    from physicsnemo.utils.patching import GridPatching2D
 
-    from physicsnemo.utils.generative import deterministic_sampler
+    torch._dynamo.reset()
 
-    net = MockNet_lead_time_embedding()
-    latents = torch.randn(2, 3, 448, 448)  # Mock latents
-    img_lr = torch.randn(2, 3, 112, 112)  # Mock low-res image
+    img_shape_y, img_shape_x = 256, 64
+    patch_shape_y, patch_shape_x = 32, 16
 
-    # Basic sampler functionality test
-    result = deterministic_sampler(
-        net=net,
-        latents=latents,
-        img_lr=img_lr,
-        patching=None,
-        mean_hr=torch.ones_like(img_lr),
-        lead_time_label=[0],
+    net = setup_model_learnable_embd(
+        (img_shape_y, img_shape_x), C_x=3, C_cond=3, global_lr=True
     )
 
-    assert result.shape == latents.shape, "Output shape does not match expected shape"
+    latents = torch.randn(2, 3, img_shape_y, img_shape_x, device=device)  # Mock latents
+    img_lr = torch.randn(
+        2, 3, img_shape_y, img_shape_x, device=device
+    )  # Mock low-res image
+
+    # Tensors with requires grad
+    a = torch.randn(1, requires_grad=True, device=device)
+    b = torch.randn(1, requires_grad=True, device=device)
+    c = torch.randn(1, requires_grad=True, device=device)
+    d = torch.randn(1, requires_grad=True, device=device)
+    e = torch.randn(1, requires_grad=True, device=device)
+    f = torch.randn(1, requires_grad=True, device=device)
+
+    # Test with patching
+    patching = GridPatching2D(
+        img_shape=(img_shape_y, img_shape_x),
+        patch_shape=(patch_shape_y, patch_shape_x),
+        overlap_pix=4,
+        boundary_pix=2,
+    )
+    net.to(device)
+    # Test with mean_hr conditioning
+    mean_hr = torch.randn(2, 3, img_shape_y, img_shape_x, device=device)
+    result_mean_hr = stochastic_sampler(
+        net=net,
+        latents=a * latents + b,
+        img_lr=c * img_lr + d,
+        patching=patching,
+        mean_hr=e * mean_hr + f,
+        num_steps=2,
+        sigma_min=0.002,
+        sigma_max=800,
+        rho=7,
+        S_churn=0,
+        S_min=0,
+        S_max=float("inf"),
+        S_noise=1,
+        lead_time_label=torch.tensor([1]),
+    )
+
+    assert (
+        result_mean_hr.shape == latents.shape
+    ), "Mean HR conditioned output shape does not match expected shape"
+
+    loss = result_mean_hr.sum()
+    loss.backward()
+
+    assert a.grad is not None
+    assert b.grad is not None
+    assert c.grad is not None
+    assert d.grad is not None
+    assert e.grad is not None
+    assert f.grad is not None

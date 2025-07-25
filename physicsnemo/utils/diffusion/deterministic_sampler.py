@@ -21,6 +21,10 @@ import nvtx
 import torch
 
 from physicsnemo.models.diffusion import EDMPrecond
+from physicsnemo.utils.diffusion.stochastic_sampler import (
+    _apply_wrapper_Cin_channels,
+    _apply_wrapper_Cout_channels,
+)
 from physicsnemo.utils.patching import GridPatching2D
 
 # ruff: noqa: E731
@@ -85,19 +89,20 @@ def deterministic_sampler(
         during the stochastic sampling. Must have the same signature as
         torch.randn_like and return torch.Tensor. Defaults to
         torch.randn_like.
-    patching : Optional[GridPatching2D], optional
+    patching : Optional[GridPatching2D], default=None
         A patching utility for patch-based diffusion. Implements methods to
-        extract patches from an image and batch the patches along `dim=0`.
-        Should also implement a `fuse` method to reconstruct the original image
-        from a batch of patches. See :class:`physicsnemo.utils.patching.GridPatching2D`
-        for details. By default None, in which case non-patched diffusion is used.
+        extract patches from an image and batch the patches along dim=0.
+        Should also implement a ``fuse`` method to reconstruct the original
+        image from a batch of patches. See
+        :class:`~physicsnemo.utils.patching.GridPatching2D` for details. By
+        default ``None``, in which case non-patched diffusion is used.
     mean_hr : Optional[Tensor], optional
         Optional tensor containing mean high-resolution images for
-        conditioning. Must have same height and width as `img_lr`, with shape
-        (B_hr, C_hr, img_lr_shape_y, img_lr_shape_x)  where the batch dimension
-        B_hr can be either 1, either equal to batch_size, or can be omitted. If
-        B_hr = 1 or is omitted, `mean_hr` will be expanded to match the shape
-        of `img_lr`. By default None.
+        conditioning. Must have same height and width as ``img_lr``, with shape
+        :math:`(B_{hr}, C_{hr}, H, W)`  where the batch dimension
+        :math:`B_{hr}` can be either 1, either equal to batch_size, or can be omitted. If
+        :math:`B_{hr} = 1` or is omitted, ``mean_hr`` will be expanded to match the shape
+        of ``img_lr``. By default ``None``.
     lead_time_label : Optional[Tensor], optional
         Optional lead time labels. By default None.
     num_steps : Optional[int]
@@ -265,7 +270,9 @@ def deterministic_sampler(
     if patching:
         # Patched conditioning [x_lr, mean_hr]
         # (batch_size * patch_num, C_in + C_out, patch_shape_y, patch_shape_x)
-        x_lr = patching.apply(input=x_lr, additional_input=img_lr)
+        x_lr = _apply_wrapper_Cin_channels(
+            patching=patching, input=x_lr, additional_input=img_lr
+        )
 
         # Function to select the correct positional embedding for each patch
         def patch_embedding_selector(emb):
@@ -343,7 +350,7 @@ def deterministic_sampler(
 
     # Main sampling loop.
     t_next = t_steps[0]
-    x_next = latents.to(torch.float64) * (sigma(t_next) * s(t_next))
+    x_next = latents * (sigma(t_next) * s(t_next))
 
     optional_args = {}
     if lead_time_label is not None:
@@ -367,12 +374,15 @@ def deterministic_sampler(
 
         # Euler step. Perform patching operation on score tensor if patch-based
         # generation is used denoised = net(x_hat, t_hat,
-        # class_labels,lead_time_label=lead_time_label).to(torch.float64)
+        # class_labels,lead_time_label=lead_time_label)
 
         h = t_next - t_hat
-        x_hat_batch = (patching.apply(input=x_hat) if patching else x_hat).to(
-            latents.device
-        )
+        x_hat_batch = (
+            _apply_wrapper_Cout_channels(patching=patching, input=x_hat)
+            if patching
+            else x_hat
+        ).to(latents.device)
+
         x_lr = x_lr.to(latents.device)
 
         if isinstance(net, EDMPrecond):
@@ -383,7 +393,7 @@ def deterministic_sampler(
                 condition=x_lr,
                 class_labels=class_labels,
                 **optional_args,
-            ).to(torch.float64)
+            )
         else:
             denoised = net(
                 x_hat_batch / s(t_hat),
@@ -391,7 +401,7 @@ def deterministic_sampler(
                 sigma(t_hat),
                 class_labels,
                 **optional_args,
-            ).to(torch.float64)
+            )
 
         if patching:
             # Un-patch the denoised image
@@ -421,7 +431,7 @@ def deterministic_sampler(
                     condition=x_lr,
                     class_labels=class_labels,
                     **optional_args,
-                ).to(torch.float64)
+                )
             else:
                 denoised = net(
                     x_prime_batch / s(t_prime),
@@ -429,7 +439,7 @@ def deterministic_sampler(
                     sigma(t_prime),
                     class_labels,
                     **optional_args,
-                ).to(torch.float64)
+                )
 
             if patching:
                 # Un-patch the denoised image

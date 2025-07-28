@@ -24,6 +24,7 @@ from physicsnemo.models.diffusion import EDMPrecond
 from physicsnemo.utils.diffusion.stochastic_sampler import (
     _apply_wrapper_Cin_channels,
     _apply_wrapper_Cout_channels,
+    _fuse_wrapper,
 )
 from physicsnemo.utils.patching import GridPatching2D
 
@@ -292,7 +293,7 @@ def deterministic_sampler(
     vp_beta_min = np.log(sigma_max**2 + 1) - 0.5 * vp_beta_d
 
     # Define time steps in terms of noise level.
-    step_indices = torch.arange(num_steps, dtype=torch.float64, device=latents.device)
+    step_indices = torch.arange(num_steps, dtype=torch.float32, device=latents.device)
     if discretization == "vp":
         orig_t_steps = 1 + step_indices / (num_steps - 1) * (epsilon_s - 1)
         sigma_steps = vp_sigma(vp_beta_d, vp_beta_min)(orig_t_steps)
@@ -302,7 +303,7 @@ def deterministic_sampler(
         )
         sigma_steps = ve_sigma(orig_t_steps)
     elif discretization == "iddpm":
-        u = torch.zeros(M + 1, dtype=torch.float64, device=latents.device)
+        u = torch.zeros(M + 1, dtype=torch.float32, device=latents.device)
         alpha_bar = lambda j: (0.5 * np.pi * j / M / (C_2 + 1)).sin() ** 2
         for j in torch.arange(M, 0, -1, device=latents.device):  # M, ..., 1
             u[j - 1] = (
@@ -406,7 +407,9 @@ def deterministic_sampler(
         if patching:
             # Un-patch the denoised image
             # (batch_size, C_out, img_shape_y, img_shape_x)
-            denoised = patching.fuse(input=denoised, batch_size=batch_size)
+            denoised = _fuse_wrapper(
+                patching=patching, input=denoised, batch_size=batch_size
+            )
 
         d_cur = (
             sigma_deriv(t_hat) / sigma(t_hat) + s_deriv(t_hat) / s(t_hat)
@@ -420,9 +423,11 @@ def deterministic_sampler(
         else:
             # Patched input
             # (batch_size * patch_num, C_out, patch_shape_y, patch_shape_x)
-            x_prime_batch = (patching.apply(input=x_prime) if patching else x_prime).to(
-                latents.device
-            )
+            x_prime_batch = (
+                _apply_wrapper_Cout_channels(patching=patching, input=x_prime)
+                if patching
+                else x_prime
+            ).to(latents.device)
             if isinstance(net, EDMPrecond):
                 # Conditioning info is passed as keyword arg
                 denoised = net(
@@ -444,7 +449,9 @@ def deterministic_sampler(
             if patching:
                 # Un-patch the denoised image
                 # (batch_size, C_out, img_shape_y, img_shape_x)
-                denoised = patching.fuse(input=denoised, batch_size=batch_size)
+                denoised = _fuse_wrapper(
+                    patching=patching, input=denoised, batch_size=batch_size
+                )
 
             d_prime = (
                 sigma_deriv(t_prime) / sigma(t_prime) + s_deriv(t_prime) / s(t_prime)

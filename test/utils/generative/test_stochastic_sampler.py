@@ -284,13 +284,13 @@ class MockNet_lead_time_embedding:
 
 # The test function for patch-based stochastic sampler with lead_time_embedding
 @import_or_fail("cftime")
-def test_stochastic_sampler_args(pytestconfig):
+def test_stochastic_sampler_with_lead_time_args(pytestconfig):
 
     from physicsnemo.utils.generative import stochastic_sampler
 
     net = MockNet_lead_time_embedding()
-    latents = torch.randn(2, 3, 448, 448)  # Mock latents
-    img_lr = torch.randn(2, 3, 112, 112)  # Mock low-res image
+    latents = torch.randn(2, 3, 32, 32)  # Mock latents
+    img_lr = torch.randn(2, 3, 32, 32)  # Mock low-res image
 
     # Basic sampler functionality test
     result = stochastic_sampler(

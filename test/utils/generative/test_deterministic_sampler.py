@@ -249,6 +249,7 @@ def setup_model_learnable_embd(img_resolution, C_x, C_cond, global_lr=False, see
     else:
         img_in_channels = C_x + N_pos + C_cond + lt_channels
     model = EDMPrecondSuperResolution(
+        model_type="SongUNetPosLtEmbd",
         img_resolution=img_resolution,
         img_in_channels=img_in_channels,
         img_out_channels=C_x,
@@ -258,7 +259,6 @@ def setup_model_learnable_embd(img_resolution, C_x, C_cond, global_lr=False, see
         num_blocks=2,
         attn_resolutions=[attn_res],
         gridtype="learnable",
-        lead_time_mode=True,
         N_grid_channels=N_pos,
         lead_time_steps=lt_steps,
         lead_time_channels=lt_channels,
@@ -268,17 +268,18 @@ def setup_model_learnable_embd(img_resolution, C_x, C_cond, global_lr=False, see
 
 # The test function for patch-based deterministic_sampler
 @import_or_fail("cftime")
-def test_deterministic_sampler_args(pytestconfig):
+@pytest.mark.parametrize("device", ["cuda:0", "cpu"])
+def test_deterministic_sampler_full_domain_lead_time(device, pytestconfig):
 
     from physicsnemo.utils.generative import deterministic_sampler
 
-    latents = torch.randn(1, 3, 448, 448)  # Mock latents
-    img_lr = torch.randn(1, 3, 448, 448)  # Mock low-res image
+    latents = torch.randn(1, 3, 16, 16, device=device)  # Mock latents
+    img_lr = torch.randn(1, 3, 16, 16, device=device)  # Mock low-res image
 
-    net = setup_model_learnable_embd((448, 448), C_x=3, C_cond=3)
-
+    net = setup_model_learnable_embd((16, 16), C_x=3, C_cond=3)
+    net.to(device)
     # Test with mean_hr conditioning
-    mean_hr = torch.randn(1, 3, 448, 448)
+    mean_hr = torch.randn(1, 3, 16, 16, device=device)
     result_mean_hr = deterministic_sampler(
         net=net,
         latents=latents,
@@ -296,19 +297,23 @@ def test_deterministic_sampler_args(pytestconfig):
 
 # The test function for edm_sampler with rectangular domain and patching
 @import_or_fail("cftime")
-def test_deterministic_sampler_rectangle_patching(pytestconfig):
+@pytest.mark.parametrize("device", ["cuda:0", "cpu"])
+def test_deterministic_sampler_rectangle_patching_lead_time(device, pytestconfig):
     from physicsnemo.utils.generative import deterministic_sampler
     from physicsnemo.utils.patching import GridPatching2D
 
-    img_shape_y, img_shape_x = 256, 64
+    torch._dynamo.reset()
+    img_shape_y, img_shape_x = 32, 32
     patch_shape_y, patch_shape_x = 32, 16
 
     net = setup_model_learnable_embd(
         (img_shape_y, img_shape_x), C_x=3, C_cond=3, global_lr=True
     )
-
-    latents = torch.randn(2, 3, img_shape_y, img_shape_x)  # Mock latents
-    img_lr = torch.randn(2, 3, img_shape_y, img_shape_x)  # Mock low-res image
+    net.to(device)
+    latents = torch.randn(2, 3, img_shape_y, img_shape_x, device=device)  # Mock latents
+    img_lr = torch.randn(
+        2, 3, img_shape_y, img_shape_x, device=device
+    )  # Mock low-res image
 
     # Test with patching
     patching = GridPatching2D(
@@ -319,7 +324,7 @@ def test_deterministic_sampler_rectangle_patching(pytestconfig):
     )
 
     # Test with mean_hr conditioning
-    mean_hr = torch.randn(2, 3, img_shape_y, img_shape_x)
+    mean_hr = torch.randn(2, 3, img_shape_y, img_shape_x, device=device)
     result_mean_hr = deterministic_sampler(
         net=net,
         latents=latents,
@@ -335,17 +340,17 @@ def test_deterministic_sampler_rectangle_patching(pytestconfig):
     ), "Mean HR conditioned output shape does not match expected shape"
 
 
-# Test that the stochastic sampler is differentiable with rectangular patching
+# Test that the deterministic sampler is differentiable with rectangular patching
 # (tests differentiation through the patching and fusing)
 @import_or_fail("cftime")
 @pytest.mark.parametrize("device", ["cuda:0", "cpu"])
-def test_stochastic_sampler_patching_differentiable(device, pytestconfig):
-    from physicsnemo.utils.diffusion import stochastic_sampler
+def test_deterministic_sampler_patching_differentiable(device, pytestconfig):
+    from physicsnemo.utils.diffusion import deterministic_sampler
     from physicsnemo.utils.patching import GridPatching2D
 
     torch._dynamo.reset()
 
-    img_shape_y, img_shape_x = 256, 64
+    img_shape_y, img_shape_x = 32, 32
     patch_shape_y, patch_shape_x = 32, 16
 
     net = setup_model_learnable_embd(
@@ -375,20 +380,13 @@ def test_stochastic_sampler_patching_differentiable(device, pytestconfig):
     net.to(device)
     # Test with mean_hr conditioning
     mean_hr = torch.randn(2, 3, img_shape_y, img_shape_x, device=device)
-    result_mean_hr = stochastic_sampler(
+    result_mean_hr = deterministic_sampler(
         net=net,
         latents=a * latents + b,
         img_lr=c * img_lr + d,
         patching=patching,
         mean_hr=e * mean_hr + f,
         num_steps=2,
-        sigma_min=0.002,
-        sigma_max=800,
-        rho=7,
-        S_churn=0,
-        S_min=0,
-        S_max=float("inf"),
-        S_noise=1,
         lead_time_label=torch.tensor([1]),
     )
 

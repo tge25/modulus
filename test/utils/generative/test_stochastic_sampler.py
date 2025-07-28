@@ -286,7 +286,7 @@ class MockNet_lead_time_embedding:
 @import_or_fail("cftime")
 def test_stochastic_sampler_with_lead_time_args(pytestconfig):
 
-    from physicsnemo.utils.generative import stochastic_sampler
+    from physicsnemo.utils.diffusion import stochastic_sampler
 
     net = MockNet_lead_time_embedding()
     latents = torch.randn(2, 3, 32, 32)  # Mock latents

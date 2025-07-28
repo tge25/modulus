@@ -185,7 +185,7 @@ def test_deterministic_sampler_scaling_validation(mock_net, scaling, pytestconfi
 @import_or_fail("cftime")
 def test_deterministic_sampler_correctness(pytestconfig):
 
-    from physicsnemo.utils.generative import deterministic_sampler
+    from physicsnemo.utils.diffusion import deterministic_sampler
 
     # Create a simple network that implements our ODE: dx/dt = -x ==> x(t) = exp(-t)
     class SimpleODENet(torch.nn.Module):
@@ -271,7 +271,7 @@ def setup_model_learnable_embd(img_resolution, C_x, C_cond, global_lr=False, see
 @pytest.mark.parametrize("device", ["cuda:0", "cpu"])
 def test_deterministic_sampler_full_domain_lead_time(device, pytestconfig):
 
-    from physicsnemo.utils.generative import deterministic_sampler
+    from physicsnemo.utils.diffusion import deterministic_sampler
 
     latents = torch.randn(1, 3, 16, 16, device=device)  # Mock latents
     img_lr = torch.randn(1, 3, 16, 16, device=device)  # Mock low-res image
@@ -299,7 +299,7 @@ def test_deterministic_sampler_full_domain_lead_time(device, pytestconfig):
 @import_or_fail("cftime")
 @pytest.mark.parametrize("device", ["cuda:0", "cpu"])
 def test_deterministic_sampler_rectangle_patching_lead_time(device, pytestconfig):
-    from physicsnemo.utils.generative import deterministic_sampler
+    from physicsnemo.utils.diffusion import deterministic_sampler
     from physicsnemo.utils.patching import GridPatching2D
 
     torch._dynamo.reset()

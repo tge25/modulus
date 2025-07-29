@@ -21,14 +21,30 @@ import nvtx
 import torch
 
 from physicsnemo.models.diffusion import EDMPrecond
-from physicsnemo.utils.diffusion.stochastic_sampler import (
-    _apply_wrapper_Cin_channels,
-    _apply_wrapper_Cout_channels,
-    _fuse_wrapper,
-)
 from physicsnemo.utils.patching import GridPatching2D
 
 # ruff: noqa: E731
+
+# NOTE: use two wrappers for apply, to avoid recompilation when input shape changes
+@torch.compile()
+def _apply_wrapper_Cin_channels(patching, input, additional_input=None):
+    """
+    Apply the patching operation to the input tensor with :math:`C_{in}` channels.
+    """
+    return patching.apply(input=input, additional_input=additional_input)
+
+
+@torch.compile()
+def _apply_wrapper_Cout_channels(patching, input, additional_input=None):
+    """
+    Apply the patching operation to the input tensor with :math:`C_{out}` channels.
+    """
+    return patching.apply(input=input, additional_input=additional_input)
+
+
+@torch.compile()
+def _fuse_wrapper(patching, input, batch_size):
+    return patching.fuse(input=input, batch_size=batch_size)
 
 
 @nvtx.annotate(message="deterministic_sampler", color="red")

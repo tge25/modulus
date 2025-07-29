@@ -27,6 +27,7 @@ class MockNet:
     def __init__(self, sigma_min=0.1, sigma_max=1000):
         self.sigma_min = sigma_min
         self.sigma_max = sigma_max
+        self.a = torch.nn.Parameter(0.9 * torch.ones(1))
 
     def round_sigma(self, t: Tensor) -> Tensor:
         return t
@@ -41,7 +42,7 @@ class MockNet:
         embedding_selector: Optional[Callable] = None,
     ) -> Tensor:
         # Mock behavior: return input tensor for testing purposes
-        return x * 0.9
+        return x * self.a
 
 
 # The test function for edm_sampler
@@ -184,6 +185,7 @@ def test_stochastic_sampler_patching_differentiable(device, pytestconfig):
         def __init__(self, sigma_min=0.1, sigma_max=1000):
             self.sigma_min = sigma_min
             self.sigma_max = sigma_max
+            self.a = torch.nn.Parameter(0.9 * torch.ones(1))
 
         def round_sigma(self, t: Tensor) -> Tensor:
             return t
@@ -198,7 +200,7 @@ def test_stochastic_sampler_patching_differentiable(device, pytestconfig):
             embedding_selector: Optional[Callable] = None,
         ) -> Tensor:
             # Mock behavior: return input tensor for testing purposes
-            return x * 0.9 + x_lr[:, : x.shape[1], :, :] * 0.1
+            return x * self.a + x_lr[:, : x.shape[1], :, :] * (1 - self.a)
 
     net = MockNet()
 

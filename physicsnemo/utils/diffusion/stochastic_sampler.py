@@ -33,9 +33,19 @@ def _apply_wrapper_Cin_channels(patching, input, additional_input=None):
 
 
 @torch.compile()
-def _apply_wrapper_Cout_channels(patching, input, additional_input=None):
+def _apply_wrapper_Cout_channels_no_grad(patching, input, additional_input=None):
     """
-    Apply the patching operation to the input tensor with :math:`C_{out}` channels.
+    Apply the patching operation to an input tensor with :math:`C_{out}`
+    channels that does not require gradients.
+    """
+    return patching.apply(input=input, additional_input=additional_input)
+
+
+@torch.compile()
+def _apply_wrapper_Cout_channels_grad(patching, input, additional_input=None):
+    """
+    Apply the patching operation to an input tensor with :math:`C_{out}`
+    channels that requires gradients.
     """
     return patching.apply(input=input, additional_input=additional_input)
 
@@ -240,7 +250,7 @@ def stochastic_sampler(
         # generation is used denoised = net(x_hat, t_hat,
         # class_labels,lead_time_label=lead_time_label).to(torch.float64)
         x_hat_batch = (
-            _apply_wrapper_Cout_channels(patching=patching, input=x_hat)
+            _apply_wrapper_Cout_channels_no_grad(patching=patching, input=x_hat)
             if patching
             else x_hat
         ).to(latents.device)
@@ -271,7 +281,7 @@ def stochastic_sampler(
             # Patched input
             # (batch_size * patch_num, C_out, patch_shape_y, patch_shape_x)
             x_next_batch = (
-                _apply_wrapper_Cout_channels(patching=patching, input=x_next)
+                _apply_wrapper_Cout_channels_grad(patching=patching, input=x_next)
                 if patching
                 else x_next
             ).to(latents.device)

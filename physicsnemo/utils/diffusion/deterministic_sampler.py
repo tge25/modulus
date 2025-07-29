@@ -35,9 +35,19 @@ def _apply_wrapper_Cin_channels(patching, input, additional_input=None):
 
 
 @torch.compile()
-def _apply_wrapper_Cout_channels(patching, input, additional_input=None):
+def _apply_wrapper_Cout_channels_no_grad(patching, input, additional_input=None):
     """
-    Apply the patching operation to the input tensor with :math:`C_{out}` channels.
+    Apply the patching operation to an input tensor with :math:`C_{out}`
+    channels that does not require gradients.
+    """
+    return patching.apply(input=input, additional_input=additional_input)
+
+
+@torch.compile()
+def _apply_wrapper_Cout_channels_grad(patching, input, additional_input=None):
+    """
+    Apply the patching operation to an input tensor with :math:`C_{out}`
+    channels that requires gradients.
     """
     return patching.apply(input=input, additional_input=additional_input)
 
@@ -397,7 +407,7 @@ def deterministic_sampler(
 
         h = t_next - t_hat
         x_hat_batch = (
-            _apply_wrapper_Cout_channels(patching=patching, input=x_hat)
+            _apply_wrapper_Cout_channels_no_grad(patching=patching, input=x_hat)
             if patching
             else x_hat
         ).to(latents.device)
@@ -442,7 +452,7 @@ def deterministic_sampler(
             # Patched input
             # (batch_size * patch_num, C_out, patch_shape_y, patch_shape_x)
             x_prime_batch = (
-                _apply_wrapper_Cout_channels(patching=patching, input=x_prime)
+                _apply_wrapper_Cout_channels_grad(patching=patching, input=x_prime)
                 if patching
                 else x_prime
             ).to(latents.device)

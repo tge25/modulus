@@ -58,6 +58,7 @@ def deterministic_sampler(
     S_min: float = 0.0,
     S_max: float = float("inf"),
     S_noise: float = 1.0,
+    dtype: torch.dtype = torch.float64,
 ) -> torch.Tensor:
     r"""
     Generalized sampler, representing the superset of all sampling methods
@@ -182,7 +183,8 @@ def deterministic_sampler(
         stochatsic sampler. Added signal noise is proportinal to
         :math:`\epsilon_i` where :math:`\epsilon_i \sim \mathcal{N}(0, S_{noise}^2)`. Defaults
         to 1.0.
-
+    S_noise : torch.dtype, optional
+        Controls the precision used for sampling
     Returns
     -------
         torch.Tensor:
@@ -293,7 +295,7 @@ def deterministic_sampler(
     vp_beta_min = np.log(sigma_max**2 + 1) - 0.5 * vp_beta_d
 
     # Define time steps in terms of noise level.
-    step_indices = torch.arange(num_steps, dtype=torch.float32, device=latents.device)
+    step_indices = torch.arange(num_steps, dtype=dtype, device=latents.device)
     if discretization == "vp":
         orig_t_steps = 1 + step_indices / (num_steps - 1) * (epsilon_s - 1)
         sigma_steps = vp_sigma(vp_beta_d, vp_beta_min)(orig_t_steps)
@@ -303,7 +305,7 @@ def deterministic_sampler(
         )
         sigma_steps = ve_sigma(orig_t_steps)
     elif discretization == "iddpm":
-        u = torch.zeros(M + 1, dtype=torch.float32, device=latents.device)
+        u = torch.zeros(M + 1, dtype=dtype, device=latents.device)
         alpha_bar = lambda j: (0.5 * np.pi * j / M / (C_2 + 1)).sin() ** 2
         for j in torch.arange(M, 0, -1, device=latents.device):  # M, ..., 1
             u[j - 1] = (
@@ -351,7 +353,7 @@ def deterministic_sampler(
 
     # Main sampling loop.
     t_next = t_steps[0]
-    x_next = latents * (sigma(t_next) * s(t_next))
+    x_next = latents.to(dtype) * (sigma(t_next) * s(t_next))
 
     optional_args = {}
     if lead_time_label is not None:
@@ -394,7 +396,7 @@ def deterministic_sampler(
                 condition=x_lr,
                 class_labels=class_labels,
                 **optional_args,
-            )
+            ).to(dtype)
         else:
             denoised = net(
                 x_hat_batch / s(t_hat),
@@ -402,7 +404,7 @@ def deterministic_sampler(
                 sigma(t_hat),
                 class_labels,
                 **optional_args,
-            )
+            ).to(dtype)
 
         if patching:
             # Un-patch the denoised image
@@ -436,7 +438,7 @@ def deterministic_sampler(
                     condition=x_lr,
                     class_labels=class_labels,
                     **optional_args,
-                )
+                ).to(dtype)
             else:
                 denoised = net(
                     x_prime_batch / s(t_prime),
@@ -444,7 +446,7 @@ def deterministic_sampler(
                     sigma(t_prime),
                     class_labels,
                     **optional_args,
-                )
+                ).to(dtype)
 
             if patching:
                 # Un-patch the denoised image

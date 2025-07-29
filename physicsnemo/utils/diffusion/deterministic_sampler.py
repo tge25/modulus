@@ -199,7 +199,7 @@ def deterministic_sampler(
         stochatsic sampler. Added signal noise is proportinal to
         :math:`\epsilon_i` where :math:`\epsilon_i \sim \mathcal{N}(0, S_{noise}^2)`. Defaults
         to 1.0.
-    S_noise : torch.dtype, optional
+    dtype : torch.dtype, optional
         Controls the precision used for sampling
     Returns
     -------

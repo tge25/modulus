@@ -23,8 +23,9 @@ from torch import Tensor
 
 
 # Mock network class
-class MockNet:
+class MockNet(torch.nn.Module):
     def __init__(self, sigma_min=0.1, sigma_max=1000):
+        super().__init__()
         self.sigma_min = sigma_min
         self.sigma_max = sigma_max
         self.a = torch.nn.Parameter(0.9 * torch.ones(1))
@@ -32,7 +33,7 @@ class MockNet:
     def round_sigma(self, t: Tensor) -> Tensor:
         return t
 
-    def __call__(
+    def forward(
         self,
         x: Tensor,
         x_lr: Tensor,
@@ -47,14 +48,15 @@ class MockNet:
 
 # The test function for edm_sampler
 @import_or_fail("cftime")
-def test_stochastic_sampler(pytestconfig):
+@pytest.mark.parametrize("device", ["cuda:0", "cpu"])
+def test_stochastic_sampler(device, pytestconfig):
     from physicsnemo.utils.diffusion import stochastic_sampler
 
     torch._dynamo.reset()
 
-    net = MockNet()
-    latents = torch.randn(2, 3, 448, 448)  # Mock latents
-    img_lr = torch.randn(2, 3, 112, 112)  # Mock low-res image
+    net = MockNet().to(device)
+    latents = torch.randn(2, 3, 448, 448, device=device)  # Mock latents
+    img_lr = torch.randn(2, 3, 112, 112, device=device)  # Mock low-res image
 
     # Basic sampler functionality test
     result = stochastic_sampler(
@@ -76,7 +78,7 @@ def test_stochastic_sampler(pytestconfig):
     assert result.shape == latents.shape, "Output shape does not match expected shape"
 
     # Test with mean_hr conditioning
-    mean_hr = torch.randn(2, 3, 112, 112)
+    mean_hr = torch.randn(2, 3, 112, 112, device=device)
     result_mean_hr = stochastic_sampler(
         net=net,
         latents=latents,
@@ -128,7 +130,7 @@ def test_stochastic_sampler_rectangle_patching(device, pytestconfig):
 
     torch._dynamo.reset()
 
-    net = MockNet()
+    net = MockNet().to(device)
 
     img_shape_y, img_shape_x = 256, 64
     patch_shape_y, patch_shape_x = 16, 10
@@ -180,8 +182,9 @@ def test_stochastic_sampler_patching_differentiable(device, pytestconfig):
     torch._dynamo.reset()
 
     # Mock network class
-    class MockNet:
+    class MockNet(torch.nn.Module):
         def __init__(self, sigma_min=0.1, sigma_max=1000):
+            super().__init__()
             self.sigma_min = sigma_min
             self.sigma_max = sigma_max
             self.a = torch.nn.Parameter(0.9 * torch.ones(1))
@@ -189,7 +192,7 @@ def test_stochastic_sampler_patching_differentiable(device, pytestconfig):
         def round_sigma(self, t: Tensor) -> Tensor:
             return t
 
-        def __call__(
+        def forward(
             self,
             x: Tensor,
             x_lr: Tensor,
@@ -201,7 +204,7 @@ def test_stochastic_sampler_patching_differentiable(device, pytestconfig):
             # Mock behavior: return input tensor for testing purposes
             return x * self.a + x_lr[:, : x.shape[1], :, :] * (1 - self.a)
 
-    net = MockNet()
+    net = MockNet().to(device)
 
     img_shape_y, img_shape_x = 256, 64
     patch_shape_y, patch_shape_x = 16, 10

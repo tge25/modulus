@@ -55,6 +55,25 @@ def _fuse_wrapper(patching, input, batch_size):
     return patching.fuse(input=input, batch_size=batch_size)
 
 
+def _apply_wrapper_select(
+    input: torch.Tensor, patching: GridPatching2D | None
+) -> Callable:
+    """
+    Select the correct patching wrapper based on the input tensor's requires_grad attribute.
+    If patching is None, return the identity function.
+    If patching is not None, return the appropriate patching wrapper.
+    If input.requires_grad is True, return _apply_wrapper_Cout_channels_grad.
+    If input.requires_grad is False, return _apply_wrapper_Cout_channels_no_grad.
+    """
+    if patching:
+        if input.requires_grad:
+            return _apply_wrapper_Cout_channels_grad
+        else:
+            return _apply_wrapper_Cout_channels_no_grad
+    else:
+        return lambda patching, input, additional_input=None: input
+
+
 def stochastic_sampler(
     net: torch.nn.Module,
     latents: Tensor,
@@ -249,10 +268,8 @@ def stochastic_sampler(
         # Euler step. Perform patching operation on score tensor if patch-based
         # generation is used denoised = net(x_hat, t_hat,
         # class_labels,lead_time_label=lead_time_label).to(torch.float64)
-        x_hat_batch = (
-            _apply_wrapper_Cout_channels_no_grad(patching=patching, input=x_hat)
-            if patching
-            else x_hat
+        x_hat_batch = _apply_wrapper_select(input=x_hat, patching=patching)(
+            patching=patching, input=x_hat
         ).to(latents.device)
 
         x_lr = x_lr.to(latents.device)
@@ -280,10 +297,8 @@ def stochastic_sampler(
         if i < num_steps - 1:
             # Patched input
             # (batch_size * patch_num, C_out, patch_shape_y, patch_shape_x)
-            x_next_batch = (
-                _apply_wrapper_Cout_channels_grad(patching=patching, input=x_next)
-                if patching
-                else x_next
+            x_next_batch = _apply_wrapper_select(input=x_next, patching=patching)(
+                patching=patching, input=x_next
             ).to(latents.device)
 
             denoised = net(

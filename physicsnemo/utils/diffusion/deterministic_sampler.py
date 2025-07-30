@@ -25,6 +25,7 @@ from physicsnemo.utils.patching import GridPatching2D
 
 # ruff: noqa: E731
 
+
 # NOTE: use two wrappers for apply, to avoid recompilation when input shape changes
 @torch.compile()
 def _apply_wrapper_Cin_channels(patching, input, additional_input=None):
@@ -55,6 +56,26 @@ def _apply_wrapper_Cout_channels_grad(patching, input, additional_input=None):
 @torch.compile()
 def _fuse_wrapper(patching, input, batch_size):
     return patching.fuse(input=input, batch_size=batch_size)
+
+
+def _apply_wrapper_select(
+    input: torch.Tensor, patching: GridPatching2D | None
+) -> Callable:
+    """
+    Select the correct patching wrapper based on the input tensor's requires_grad attribute.
+    If patching is None, return the identity function.
+    If patching is not None, return the appropriate patching wrapper.
+    If input.requires_grad is True, return _apply_wrapper_Cout_channels_grad.
+    If input.requires_grad is False, return
+    _apply_wrapper_Cout_channels_no_grad.
+    """
+    if patching:
+        if input.requires_grad:
+            return _apply_wrapper_Cout_channels_grad
+        else:
+            return _apply_wrapper_Cout_channels_no_grad
+    else:
+        return lambda patching, input, additional_input=None: input
 
 
 @nvtx.annotate(message="deterministic_sampler", color="red")
@@ -406,13 +427,9 @@ def deterministic_sampler(
         # class_labels,lead_time_label=lead_time_label)
 
         h = t_next - t_hat
-        x_hat_batch = (
-            _apply_wrapper_Cout_channels_no_grad(patching=patching, input=x_hat)
-            if patching
-            else x_hat
+        x_hat_batch = _apply_wrapper_select(input=x_hat, patching=patching)(
+            patching=patching, input=x_hat
         ).to(latents.device)
-
-        x_lr = x_lr.to(latents.device)
 
         if isinstance(net, EDMPrecond):
             # Conditioning info is passed as keyword arg
@@ -451,11 +468,10 @@ def deterministic_sampler(
         else:
             # Patched input
             # (batch_size * patch_num, C_out, patch_shape_y, patch_shape_x)
-            x_prime_batch = (
-                _apply_wrapper_Cout_channels_grad(patching=patching, input=x_prime)
-                if patching
-                else x_prime
+            x_prime_batch = _apply_wrapper_select(input=x_prime, patching=patching)(
+                patching=patching, input=x_prime
             ).to(latents.device)
+
             if isinstance(net, EDMPrecond):
                 # Conditioning info is passed as keyword arg
                 denoised = net(

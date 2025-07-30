@@ -44,7 +44,6 @@ def mock_net():
 # Basic functionality test
 @import_or_fail("cftime")
 def test_deterministic_sampler_output_type_and_shape(mock_net, pytestconfig):
-
     from physicsnemo.utils.diffusion import deterministic_sampler
 
     latents = torch.randn(1, 3, 64, 64)
@@ -58,7 +57,6 @@ def test_deterministic_sampler_output_type_and_shape(mock_net, pytestconfig):
 @import_or_fail("cftime")
 @pytest.mark.parametrize("solver", ["invalid_solver", "euler", "heun"])
 def test_deterministic_sampler_solver_validation(mock_net, solver, pytestconfig):
-
     from physicsnemo.utils.diffusion import deterministic_sampler
 
     if solver == "invalid_solver":
@@ -82,7 +80,6 @@ def test_deterministic_sampler_solver_validation(mock_net, solver, pytestconfig)
 # Test for edge cases
 @import_or_fail("cftime")
 def test_deterministic_sampler_edge_cases(mock_net, pytestconfig):
-
     from physicsnemo.utils.diffusion import deterministic_sampler
 
     latents = torch.randn(1, 3, 64, 64)
@@ -98,7 +95,6 @@ def test_deterministic_sampler_edge_cases(mock_net, pytestconfig):
 @import_or_fail("cftime")
 @pytest.mark.parametrize("discretization", ["vp", "ve", "iddpm", "edm"])
 def test_deterministic_sampler_discretization(mock_net, discretization, pytestconfig):
-
     from physicsnemo.utils.diffusion import deterministic_sampler
 
     latents = torch.randn(1, 3, 64, 64)
@@ -113,7 +109,6 @@ def test_deterministic_sampler_discretization(mock_net, discretization, pytestco
 @import_or_fail("cftime")
 @pytest.mark.parametrize("schedule", ["vp", "ve", "linear"])
 def test_deterministic_sampler_schedule(mock_net, schedule, pytestconfig):
-
     from physicsnemo.utils.diffusion import deterministic_sampler
 
     latents = torch.randn(1, 3, 64, 64)
@@ -128,7 +123,6 @@ def test_deterministic_sampler_schedule(mock_net, schedule, pytestconfig):
 @import_or_fail("cftime")
 @pytest.mark.parametrize("num_steps", [1, 5, 18])
 def test_deterministic_sampler_num_steps(mock_net, num_steps, pytestconfig):
-
     from physicsnemo.utils.diffusion import deterministic_sampler
 
     latents = torch.randn(1, 3, 64, 64)
@@ -145,7 +139,6 @@ def test_deterministic_sampler_num_steps(mock_net, num_steps, pytestconfig):
 def test_deterministic_sampler_sigma_boundaries(
     mock_net, sigma_min, sigma_max, pytestconfig
 ):
-
     from physicsnemo.utils.diffusion import deterministic_sampler
 
     latents = torch.randn(1, 3, 64, 64)
@@ -164,7 +157,6 @@ def test_deterministic_sampler_sigma_boundaries(
 @import_or_fail("cftime")
 @pytest.mark.parametrize("scaling", ["invalid_scaling", "vp", "none"])
 def test_deterministic_sampler_scaling_validation(mock_net, scaling, pytestconfig):
-
     from physicsnemo.utils.diffusion import deterministic_sampler
 
     latents = torch.randn(1, 3, 64, 64)
@@ -184,7 +176,6 @@ def test_deterministic_sampler_scaling_validation(mock_net, scaling, pytestconfi
 # Test correctness with known ODE solution
 @import_or_fail("cftime")
 def test_deterministic_sampler_correctness(pytestconfig):
-
     from physicsnemo.utils.diffusion import deterministic_sampler
 
     # Create a simple network that implements our ODE: dx/dt = -x ==> x(t) = exp(-t)
@@ -223,9 +214,9 @@ def test_deterministic_sampler_correctness(pytestconfig):
     analytical_solution = torch.ones_like(x_final)
 
     # Check with loose tolerance since we're using numerical integration
-    assert torch.allclose(
-        x_final, analytical_solution, rtol=1e-2, atol=1e-2
-    ), f"Numerical solution {x_final.item():.6f} does not match analytical solution {analytical_solution.item():.6f}"
+    assert torch.allclose(x_final, analytical_solution, rtol=1e-2, atol=1e-2), (
+        f"Numerical solution {x_final.item():.6f} does not match analytical solution {analytical_solution.item():.6f}"
+    )
 
 
 def setup_model_learnable_embd(img_resolution, C_x, C_cond, global_lr=False, seed=0):
@@ -270,7 +261,6 @@ def setup_model_learnable_embd(img_resolution, C_x, C_cond, global_lr=False, see
 @import_or_fail("cftime")
 @pytest.mark.parametrize("device", ["cuda:0", "cpu"])
 def test_deterministic_sampler_full_domain_lead_time(device, pytestconfig):
-
     from physicsnemo.utils.diffusion import deterministic_sampler
 
     latents = torch.randn(1, 3, 16, 16, device=device)  # Mock latents
@@ -290,9 +280,9 @@ def test_deterministic_sampler_full_domain_lead_time(device, pytestconfig):
         lead_time_label=torch.tensor([1]),
     )
 
-    assert (
-        result_mean_hr.shape == latents.shape
-    ), "Mean HR conditioned output shape does not match expected shape"
+    assert result_mean_hr.shape == latents.shape, (
+        "Mean HR conditioned output shape does not match expected shape"
+    )
 
 
 # The test function for edm_sampler with rectangular domain and patching
@@ -335,9 +325,9 @@ def test_deterministic_sampler_rectangle_patching_lead_time(device, pytestconfig
         lead_time_label=torch.tensor([1]),
     )
 
-    assert (
-        result_mean_hr.shape == latents.shape
-    ), "Mean HR conditioned output shape does not match expected shape"
+    assert result_mean_hr.shape == latents.shape, (
+        "Mean HR conditioned output shape does not match expected shape"
+    )
 
 
 # Test that the deterministic sampler is differentiable with rectangular patching
@@ -390,9 +380,9 @@ def test_deterministic_sampler_patching_differentiable(device, pytestconfig):
         lead_time_label=torch.tensor([1]),
     )
 
-    assert (
-        result_mean_hr.shape == latents.shape
-    ), "Mean HR conditioned output shape does not match expected shape"
+    assert result_mean_hr.shape == latents.shape, (
+        "Mean HR conditioned output shape does not match expected shape"
+    )
 
     loss = result_mean_hr.sum()
     loss.backward()

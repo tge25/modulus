@@ -134,13 +134,18 @@ class CoupledTimeSeriesDataset(TimeSeriesDataset):
         if self.add_train_noise:
             self.rng = np.random.default_rng(train_noise_seed)
 
-        self.couplings = [
-            getattr(couplers, c["coupler"])(
-                dataset,
-                **OmegaConf.to_object(DictConfig(c))["params"],
-            )
-            for c in couplings
-        ]
+        # A coupler whose params set ``coupled_dataset_path`` reads that zarr instead,
+        # reindexed to this dataset's time axis (NaN outside the zarr's range).
+        self.couplings = []
+        for c in couplings:
+            params = dict(OmegaConf.to_object(DictConfig(c))["params"])
+            path = params.pop("coupled_dataset_path", None)
+            coupled_ds = dataset
+            if path is not None:
+                coupled_ds = xr.open_zarr(path, consolidated=True)
+                if not np.array_equal(coupled_ds.time.values, dataset.time.values):
+                    coupled_ds = coupled_ds.reindex(time=dataset.time.values, fill_value=np.nan)
+            self.couplings.append(getattr(couplers, c["coupler"])(coupled_ds, **params))
         super().__init__(
             dataset=dataset,
             scaling=scaling,

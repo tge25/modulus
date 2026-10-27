@@ -597,9 +597,11 @@ class CoupledTimeSeriesDataModule(TimeSeriesDataModule):
         )
 
     def _get_coupled_vars(self):
-
+        # couplers with their own coupled_dataset_path do not read this dataset
         coupled_variables = []
         for d in self.couplings:
+            if d["params"].get("coupled_dataset_path") is not None:
+                continue
             coupled_variables = coupled_variables + d["params"]["variables"]
         return coupled_variables
 
